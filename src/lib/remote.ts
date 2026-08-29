@@ -1,27 +1,14 @@
 /* SALVAGE/9 — mirrors, filters, grading, raster sentry, paced queues.
-   Six mirrors with independent rate windows. Hard rules: throttled no-op ≠
-   dry well; real empty answer → rotate vein (resume mid-page); all-dupes →
-   walk page forward; per-tap persisted walk cursor. */
+   Six mirrors with independent rate windows. */
 
 import type { Family } from './types';
 
 export interface RemoteItem {
-  id: string;
-  title: string;
-  thumb: string;
-  fullUrl: string;
-  pageUrl?: string;
-  creator?: string;
-  license?: string;
-  provider: string;
-  sourceName?: string;
-  w: number;
-  h: number;
-  gradeScore?: number;
-  gradeWhy?: string[];
+  id: string; title: string; thumb: string; fullUrl: string; pageUrl?: string;
+  creator?: string; license?: string; provider: string; sourceName?: string;
+  w: number; h: number; gradeScore?: number; gradeWhy?: string[];
 }
-
-export type QEvent = (msg: string, kind: 'sys' | 'warn' | 'bin') => void;
+export type QEvent = (msg: string, kind: 'sys' | 'pass' | 'bin' | 'warn' | 'err' | 'cut') => void;
 export type ProviderPolicy = 'museum' | 'open' | 'any';
 
 export const mirrorStats = {
@@ -61,25 +48,20 @@ async function jfetch(url: string): Promise<Response> {
       throw e;
     }
     return res;
-  } finally {
-    window.clearTimeout(t);
-  }
+  } finally { window.clearTimeout(t); }
 }
 
 /* ---------------- dedupe memory ---------------- */
-
 const ID_CAP = 10000;
 const URL_CAP = 10000;
 const seenIds = new Set<string>();
 const seenIdOrder: string[] = [];
 const seenUrls = new Set<string>();
 const seenUrlOrder: string[] = [];
-
 function rememberIds(ids: string[]) {
   for (const id of ids) {
     if (seenIds.has(id)) continue;
-    seenIds.add(id);
-    seenIdOrder.push(id);
+    seenIds.add(id); seenIdOrder.push(id);
     if (seenIdOrder.length > ID_CAP) { const old = seenIdOrder.shift(); if (old) seenIds.delete(old); }
   }
 }
@@ -91,14 +73,12 @@ function rememberUrls(urls: string[]) {
     if (!u) continue;
     const k = urlKey(u);
     if (seenUrls.has(k)) continue;
-    seenUrls.add(k);
-    seenUrlOrder.push(k);
+    seenUrls.add(k); seenUrlOrder.push(k);
     if (seenUrlOrder.length > URL_CAP) { const old = seenUrlOrder.shift(); if (old) seenUrls.delete(old); }
   }
 }
 
 /* ---------------- walk cursors ---------------- */
-
 interface Cursor { term: number; page: number }
 type CursorMap = Record<string, Cursor>;
 const cursors: CursorMap = (() => {
@@ -106,8 +86,7 @@ const cursors: CursorMap = (() => {
     const raw = localStorage.getItem('salvage9.cursor.v1');
     if (!raw) return {};
     const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as CursorMap;
-    return {};
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as CursorMap) : {};
   } catch { return {}; }
 })();
 let cursorSaveT: number | null = null;
@@ -120,8 +99,7 @@ function persistCursorsSoon() {
 }
 
 /* ---------------- provider policies ---------------- */
-
-const OV_MUSEUMS = 'met,rijksmuseum,smithsonian,nypl,wellcome_images,europeana,brooklyn_museum,clevelandmuseum,digitaltmuseum,rawpixel,museumsvictoria,nasa,thorvaldsensmuseum,statensmuseum,getty,parismusees';
+const OV_MUSEUMS = 'met,rijksmuseum,smithsonian,nypl,wellcome_images,europeana,brooklyn_museum,clevelandmuseum,digitaltmuseum,rawpixel,museumsvictoria,nasa,thorvaldsensmuseum,statensmuseum,getty,parismusees,bhl';
 const OV_OPEN = 'flickr,rawpixel,europeana,wordpress,stocksnap,500px';
 const POLICY_MUSEUM = new Set<Family>(['anatomy', 'dore', 'patent', 'stars', 'arch']);
 const POLICY_ANY = new Set<Family>(['webcore', 'retro', 'vhs']);
@@ -132,31 +110,20 @@ function providersFor(family: Family, policy?: ProviderPolicy): string | null {
   return OV_OPEN;
 }
 export const MUSEUM_RE = /\b(met|rijksmuseum|smithsonian|wellcome|british library|library of congress|nypl|europeana|biodiversity|victoria and albert|cleveland museum|art institute|getty|museum|gallery|collection|archive)\b/i;
-export const MUSEUM_NAMES = new Set(['met', 'rijksmuseum', 'smithsonian', 'cleveland', 'artic', 'vam', 'nypl', 'wellcome_images', 'getty']);
+export const MUSEUM_NAMES = new Set(['met', 'rijksmuseum', 'smithsonian', 'cleveland', 'artic', 'vam', 'nypl', 'wellcome_images', 'getty', 'bhl']);
 
 /* ---------------- mirrors ---------------- */
-
 async function openverse(term: string, page: number, sources: string | null): Promise<RemoteItem[]> {
   const srcs = sources ? `&source=${sources}` : '';
   const res = await jfetch(`https://api.openverse.org/v1/images/?q=${encodeURIComponent(term)}&page=${page}&page_size=20&license_type=commercial${srcs}`);
   const json = (await res.json()) as {
-    results?: Array<{
-      id: string; title?: string; creator?: string; license?: string; provider?: string;
-      url?: string; thumbnail?: string; foreign_landing_url?: string; width?: number; height?: number;
-    }>;
+    results?: Array<{ id: string; title?: string; creator?: string; license?: string; provider?: string; url?: string; thumbnail?: string; foreign_landing_url?: string; width?: number; height?: number }>;
   };
   return (json.results ?? []).filter(r => r.thumbnail).map(r => ({
-    id: `ov-${r.id}`,
-    title: r.title ?? 'untitled',
-    thumb: r.thumbnail!,
-    fullUrl: r.url || r.thumbnail!,
-    pageUrl: r.foreign_landing_url,
-    creator: r.creator,
-    license: r.license,
-    provider: r.provider ?? 'openverse',
-    sourceName: r.provider ?? 'openverse',
-    w: r.width ?? 0,
-    h: r.height ?? 0,
+    id: `ov-${r.id}`, title: r.title ?? 'untitled', thumb: r.thumbnail!,
+    fullUrl: r.url || r.thumbnail!, pageUrl: r.foreign_landing_url,
+    creator: r.creator, license: r.license, provider: r.provider ?? 'openverse', sourceName: r.provider ?? 'openverse',
+    w: r.width ?? 0, h: r.height ?? 0,
   }));
 }
 
@@ -167,12 +134,7 @@ async function commons(term: string, page: number): Promise<RemoteItem[]> {
     `&prop=imageinfo|info&inprop=url&iiprop=url|size|extmetadata&iiurlwidth=1200`;
   const res = await jfetch(url);
   const json = (await res.json()) as {
-    query?: {
-      pages?: Record<string, {
-        pageid?: number; title?: string; fullurl?: string;
-        imageinfo?: Array<{ thumburl?: string; url?: string; width?: number; height?: number; extmetadata?: Record<string, { value?: string }> }>;
-      }>;
-    };
+    query?: { pages?: Record<string, { pageid?: number; title?: string; fullurl?: string; imageinfo?: Array<{ thumburl?: string; url?: string; width?: number; height?: number; extmetadata?: Record<string, { value?: string }> }> }> };
   };
   const pages = json.query?.pages ?? {};
   const out: RemoteItem[] = [];
@@ -184,15 +146,11 @@ async function commons(term: string, page: number): Promise<RemoteItem[]> {
     out.push({
       id: `wm-${p.pageid ?? key}`,
       title: (p.title ?? 'untitled').replace(/^File:/, '').replace(/\.[a-z]+$/i, ''),
-      thumb: ii.thumburl,
-      fullUrl: ii.url ?? ii.thumburl,
-      pageUrl: p.fullurl,
+      thumb: ii.thumburl, fullUrl: ii.url ?? ii.thumburl, pageUrl: p.fullurl,
       creator: meta.Artist?.value?.replace(/<[^>]+>/g, ''),
       license: meta.LicenseShortName?.value,
-      provider: 'commons',
-      sourceName: 'wikimedia',
-      w: ii.width ?? 0,
-      h: ii.height ?? 0,
+      provider: 'commons', sourceName: 'wikimedia',
+      w: ii.width ?? 0, h: ii.height ?? 0,
     });
   }
   return out;
@@ -214,10 +172,7 @@ async function metStrike(term: string, page: number): Promise<RemoteItem[]> {
   for (const oid of slice) {
     try {
       const res = await jfetch(`https://collectionapi.metmuseum.org/public/collection/v1/objects/${oid}`);
-      const o = (await res.json()) as {
-        objectID?: number; title?: string; artistDisplayName?: string; objectURL?: string;
-        primaryImageSmall?: string; primaryImage?: string; isPublicDomain?: boolean;
-      };
+      const o = (await res.json()) as { objectID?: number; title?: string; artistDisplayName?: string; objectURL?: string; primaryImageSmall?: string; primaryImage?: string; isPublicDomain?: boolean };
       if (!o.isPublicDomain || !o.primaryImageSmall) continue;
       out.push({
         id: `met-${oid}`, title: o.title ?? 'untitled', thumb: o.primaryImageSmall,
@@ -232,17 +187,12 @@ async function metStrike(term: string, page: number): Promise<RemoteItem[]> {
 async function cleStrike(term: string, page: number): Promise<RemoteItem[]> {
   const res = await jfetch(`https://openaccess-api.clevelandart.org/api/artworks/?q=${encodeURIComponent(term)}&cc0=1&limit=10&skip=${(page - 1) * 10}&fields=id,title,images,url,creators`);
   const json = (await res.json()) as {
-    data?: Array<{
-      id: number; title?: string; url?: string;
-      images?: { web?: { url?: string }; print?: { url?: string } };
-      creators?: Array<{ description?: string }>;
-    }>;
+    data?: Array<{ id: number; title?: string; url?: string; images?: { web?: { url?: string }; print?: { url?: string } }; creators?: Array<{ description?: string }> }>;
   };
   return (json.data ?? []).filter(o => o.images?.web?.url || o.images?.print?.url).map(o => ({
     id: `cle-${o.id}`, title: o.title ?? 'untitled',
     thumb: o.images?.web?.url ?? o.images?.print?.url ?? '',
-    fullUrl: o.images?.print?.url ?? o.images?.web?.url ?? '',
-    pageUrl: o.url,
+    fullUrl: o.images?.print?.url ?? o.images?.web?.url ?? '', pageUrl: o.url,
     creator: Array.isArray(o.creators) && o.creators.length ? o.creators[0].description : undefined,
     license: 'CC0', provider: 'cleveland', sourceName: 'cleveland', w: 0, h: 0,
   }));
@@ -263,10 +213,7 @@ async function artStrike(term: string, page: number): Promise<RemoteItem[]> {
 async function vamStrike(term: string, page: number): Promise<RemoteItem[]> {
   const res = await jfetch(`https://api.vam.ac.uk/v2/objects/search?q=${encodeURIComponent(term)}&page=${page}&page_size=10&images_exist=1`);
   const json = (await res.json()) as {
-    records?: Array<{
-      systemNumber?: string; objectType?: string; _primaryTitle?: string; _primaryThumbnail?: string;
-      artistMakerPerson?: Array<{ name?: { text?: string } }>;
-    }>;
+    records?: Array<{ systemNumber?: string; objectType?: string; _primaryTitle?: string; _primaryThumbnail?: string; artistMakerPerson?: Array<{ name?: { text?: string } }> }>;
   };
   const out: RemoteItem[] = [];
   for (const o of json.records ?? []) {
@@ -293,7 +240,6 @@ async function museumStrike(m: MuseumMirror, term: string, page: number): Promis
 /* ================================================================== */
 /*  FILTER STACK — order matters                                        */
 /* ================================================================== */
-
 const HARD_WORDS = [
   'classic car', 'antique car', 'vintage car', 'old car', 'automobile', 'motorcar', 'chevrolet', 'chevy',
   'cadillac', 'buick', 'pontiac', 'corvette', 'mustang', 'hot rod', 'hotrod', 'oldtimer', 'old-timer',
@@ -305,14 +251,9 @@ const HARD_WORDS = [
   'les paul', 'epiphone', 'ibanez', 'amplifier', 'headstock', 'fretboard',
   'rick and morty', 'rick & morty', 'rickandmorty', 'pickle rick',
 ];
-const esc = (w: string) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const BANNED_HARD = new RegExp(`\\b(${HARD_WORDS.map(esc).join('|')})\\b`, 'i');
-
+const BANNED_HARD = new RegExp(`\\b(${HARD_WORDS.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\b`, 'i');
 const BANNED_SKY = /\b(milky way|starry sky|starry night sky|star trail|astrophotography|deep sky|long exposure night|nightscape|stargazing|star cluster photo|night sky photograph)\b/i;
-
 const AI_MARKER = /\b(ai generated|ai-generated|ai art|midjourney|dall-e|dalle|stable diffusion|stablediffusion|firefly|generative ai|machine generated|neural art|diffusion model)\b/i;
-
-/* sport / activity people — die on EVERY lineage; tech terms escape */
 const ACTIVITY_WORDS = [
   'jogging', 'jogger', 'marathon', 'triathlon', 'cycling', 'cyclist', 'biking', 'biker',
   'swimming', 'swimmer', 'hiking', 'hiker', 'climbing wall', 'rock climber', 'dancing', 'dancer',
@@ -327,51 +268,40 @@ const ACTIVITY_WORDS = [
   'man jogging', 'woman jogging', 'kids playing', 'children playing', 'playing soccer', 'playing football',
   'doing yoga', 'doing pilates', 'sports team', 'sports player',
 ];
-const BANNED_ACTIVITY = new RegExp(`\\b(${ACTIVITY_WORDS.map(esc).join('|')})\\b`, 'i');
-const TECH_ESCAPES = /\b(patent|drawing|diagram|schematic|cutaway|blueprint|engraving|illustration|woodcut|etching|fig\.?\s*\d|machine|assembly|mechanism|gear|component|device|apparatus|model no)\b/i;
-
-/* text pages */
+const BANNED_ACTIVITY = new RegExp(`\\b(${ACTIVITY_WORDS.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\b`, 'i');
+const ACTOR_NOUNS = /\b(runners?|joggers?|cyclists?|swimmers?|hikers?|climbers?|dancers?|surfers?|skaters?|skiers?|golfers?|boxers?|athletes?|gymnasts?|bodybuilders?|weightlifters?|marathoners?|sprinters?|triathletes?|yogis?)\b/i;
+const TECH_ESCAPES = /\b(patent|drawing|diagram|schematic|cutaway|blueprint|engraving|illustration|woodcut|etching|fig\.?\s*\d|us\s?\d|machine|assembly|mechanism|gear|component|device|apparatus|model no)\b/i;
 const TEXT_WORDS = [
   'letter', 'ledger', 'invoice', 'receipt', 'manuscript page', 'book page', 'newspaper', 'newsprint',
   'magazine page', 'certificate', 'diploma', 'document', 'paperwork', 'memo', 'telegram', 'postcard message',
   'handwritten letter', 'type specimen', 'typesetting', 'typography', 'font specimen', 'alphabet specimen',
   'price list', 'timetable', 'menu', 'advertisement page', 'obituary', 'correspondence', 'account book',
 ];
-const BANNED_TEXT_WORDS = new RegExp(`\\b(${TEXT_WORDS.map(esc).join('|')})\\b`, 'i');
+const BANNED_TEXT_WORDS = new RegExp(`\\b(${TEXT_WORDS.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\b`, 'i');
 const BANNED_TEXT_PATTERN = /\b(page \d+|p\. \d+|plate \d+ of|vol\. \d+|\d+ pages|arxiv:|doi:|doi\.org|isbn \d|section \d|chapter \d|table of contents|folio \d+[rv]?)\b/i;
-
-/* covers / genres — pass only with art proof */
 const BANNED_COVER = /\b(book cover|blank book|notebook cover|leather cover|cloth cover|blank page|empty page|blank canvas|book binding|front cover|back cover|book jacket|dust jacket|dustjacket|cover page|title page|paperback|hardcover|hard cover|book spine|spine of book|cover design|binding)\b/i;
 const BANNED_GENRE = /\b(almanac|encyclopedia|dictionary|textbook|catalog|catalogue|handbook|manual|gazette|journal issue|newsletter|yearbook|annual report|proceedings|bulletin|novel|fiction|memoir|biography|anthology|reader|primer)\b/i;
-
 const ART_PROOF = /\b(engrav|etching|woodcut|wood-cut|illustrat|plate|drawing|print|poster|sketch|lithograph|intaglio|linocut|screen ?print|manuscript|illuminated|chromolithograph|woodblock|painting|artwork)\b/i;
-const STRONG_ART = /\b(engraving|etching|woodcut|lithograph|woodblock|chromolithograph|illuminated manuscript|painting)\b/i;
 const ARTIST_PROOF = /\b(attributed|studio of|engraved by|drawn by|after |school of|circle of|workshop of)\b/i;
 const INSTITUTIONAL = /\b(museum|collection|library|archive|gallery|institute|society|university)\b/i;
-
-/* military: people die (tech escapes) */
 const MILITARY_PERSON = /\b(soldier|soldiers|infantry|marine|marines|sergeant|corporal|private first class|general officer|troops|trooper|sailor|airman|guardsman|militia|paratrooper|sniper|platoon|regiment portrait|war veteran|military personnel|military portrait)\b/i;
 const MILITARY_TECH = /\b(schematic|blueprint|cutaway|exploded view|technical drawing|ordnance|artillery diagram|weapon diagram|tank diagram|aircraft diagram|ship plan|engineering drawing|mechanism)\b/i;
-
-/* cosplay / ren-faire — die unless made-art */
 const COSPLAY = /\b(cosplay|costume|costumed|ren ?faire|renaissance faire|larp|live-action role|reenact\w*|scadian|festival|convention|comic-con|comic con)\b/i;
-
-/* person words — pass with art / artist / institutional proof */
 const BANNED_HUMAN = /\b(portrait|headshot|selfie|pedestrians?|crowd|people walking|people standing|man standing|woman standing|street scene|group of people|family photo|politician|man in suit|woman in dress|businessman|businesswoman|tourists?|persons?|people|man|woman|boy|girl|child|children|kids|baby|infant|teenager|gentleman|lady|couple|fashion model|actor|actress|singer|musician|worker|farmer|police officer|audience|students?|celebrity|president|hands of|face of|smiling|laughing|wedding|friends)\b/i;
 
-export function allowedItem(item: RemoteItem, family: Family): boolean {
+function allowedItem(item: RemoteItem, family: Family): boolean {
   const t = item.title;
   const blob = `${item.creator ?? ''} ${item.provider ?? ''}`;
   if (BANNED_HARD.test(t)) return false;
   if (BANNED_SKY.test(t)) return false;
-  if (!TECH_ESCAPES.test(t) && (BANNED_ACTIVITY.test(t))) return false;
+  if (!TECH_ESCAPES.test(t) && (BANNED_ACTIVITY.test(t) || ACTOR_NOUNS.test(t))) return false;
   if (AI_MARKER.test(t) || AI_MARKER.test(blob)) return false;
   if (BANNED_TEXT_WORDS.test(t)) return false;
   if (BANNED_TEXT_PATTERN.test(t)) return false;
   if (BANNED_COVER.test(t) && !ART_PROOF.test(t)) return false;
   if (BANNED_GENRE.test(t) && !ART_PROOF.test(t)) return false;
   if (MILITARY_PERSON.test(t) && !MILITARY_TECH.test(t)) return false;
-  if (COSPLAY.test(t) && !ART_PROOF.test(t) && !ARTIST_PROOF.test(blob) && !INSTITUTIONAL.test(blob)) return false;
+  if (COSPLAY.test(t) && !ART_PROOF.test(t) && !ARTIST_PROOF.test(blob)) return false;
   if (BANNED_HUMAN.test(t)) {
     if (ART_PROOF.test(t) || ARTIST_PROOF.test(blob) || INSTITUTIONAL.test(blob)) return true;
     return false;
@@ -380,9 +310,8 @@ export function allowedItem(item: RemoteItem, family: Family): boolean {
 }
 
 /* ================================================================== */
-/*  GRADING — metadata first; the raster sentry refines ±8 only         */
+/*  GRADING — metadata first; raster sentry refines ±8 only             */
 /* ================================================================== */
-
 const PD_RE = /\b(cc0|public domain|pdm|cc-by|creative commons)\b/i;
 const FILENAME_RE = /^[a-z0-9_-]{3,}\.(jpe?g|png|gif|webp|tiff?)$/i;
 const MODERN_PHOTO_WORDS = /\b(stock photo|smartphone|camera phone|instagram|selfie|bokeh|hdr photo)\b/i;
@@ -391,6 +320,7 @@ export function gradePlate(item: RemoteItem, family: Family, keywords: string[])
   const why: string[] = [];
   let s = 36;
   why.push('BASE +36');
+  const blob = `${item.creator ?? ''} ${item.provider ?? ''}`;
   const mp = item.w > 0 && item.h > 0 ? (item.w * item.h) / 1_000_000 : 0;
   if (item.w > 0 && item.h > 0) {
     if (mp >= 3) { s += 18; why.push(`RES ${mp.toFixed(1)}MP +18`); }
@@ -398,9 +328,7 @@ export function gradePlate(item: RemoteItem, family: Family, keywords: string[])
     else if (mp >= 0.7) { s += 11; why.push(`RES ${mp.toFixed(1)}MP +11`); }
     else if (mp >= 0.3) { s += 7; why.push(`RES ${mp.toFixed(1)}MP +7`); }
     else if (mp < 0.15) { s -= 8; why.push(`RES ${mp.toFixed(2)}MP −8`); }
-  } else {
-    s += 10; why.push('RES unknown→archive +10');
-  }
+  } else { s += 10; why.push('RES unknown→archive +10'); }
   const src = item.sourceName ?? item.provider;
   if (MUSEUM_NAMES.has(src) || MUSEUM_RE.test(src) || MUSEUM_RE.test(item.creator ?? '')) { s += 13; why.push('SOURCE museum +13'); }
   else if (/europeana|rawpixel/.test(src)) { s += 10; why.push('SOURCE commons-tier +10'); }
@@ -430,16 +358,10 @@ export function gradePlate(item: RemoteItem, family: Family, keywords: string[])
 }
 
 /* ================================================================== */
-/*  RASTER SENTRY — decides what titles can't                           */
+/*  RASTER SENTRY                                                       */
 /* ================================================================== */
-
 export interface PlateScan {
-  flat: boolean;
-  textPage: boolean;
-  sparse: boolean;
-  photo: boolean;
-  skin: number;
-  quality: number;
+  flat: boolean; textPage: boolean; sparse: boolean; photo: boolean; skin: number; quality: number;
 }
 
 export function analyzePlate(img: HTMLImageElement): PlateScan {
@@ -495,12 +417,12 @@ export function analyzePlate(img: HTMLImageElement): PlateScan {
   const satFrac = satPx / N;
   const skinFrac = skinPx / N;
   let hueBins = 0;
-  for (let b2 = 0; b2 < 12; b2++) if (hueTotal > 0 && hueMass[b2] / hueTotal > 0.07) hueBins++;
+  for (let b = 0; b < 12; b++) if (hueTotal > 0 && hueMass[b] / hueTotal > 0.07) hueBins++;
   const photo = satFrac > 0.26 && hueBins >= 4 && edgeDensity > 0.2 && std > 42;
   const flat = (std < 8 && edgeDensity < 0.02) || (std < 14 && edgeDensity < 0.012 && avgChroma < 12);
   let dark = 0, light = 0;
-  for (let b2 = 0; b2 < 5; b2++) dark += hist[b2];
-  for (let b2 = 11; b2 < 16; b2++) light += hist[b2];
+  for (let b = 0; b < 5; b++) dark += hist[b];
+  for (let b = 11; b < 16; b++) light += hist[b];
   let rows = 0;
   for (let y = 2; y < S - 2; y++) {
     let runs = 0, inRun = false, runLen = 0, ink = 0;
@@ -532,9 +454,9 @@ export function analyzePlate(img: HTMLImageElement): PlateScan {
   const sparse = light / N > 0.5 && dark / N > 0.01 && dark / N < 0.3 && edgeDensity < 0.13 &&
     nonDenseInk > 0 && bandW < S * 0.62 && bandInk / nonDenseInk > 0.7 && mid < 0.42;
   let nearBlack = 0, nearWhite = 0, midMass = 0;
-  for (let b2 = 0; b2 < 4; b2++) nearBlack += hist[b2];
-  for (let b2 = 13; b2 < 16; b2++) nearWhite += hist[b2];
-  for (let b2 = 5; b2 < 11; b2++) midMass += hist[b2];
+  for (let b = 0; b < 4; b++) nearBlack += hist[b];
+  for (let b = 13; b < 16; b++) nearWhite += hist[b];
+  for (let b = 5; b < 11; b++) midMass += hist[b];
   const resQ = img.naturalWidth >= 1400 || img.naturalHeight >= 1400 ? 12
     : img.naturalWidth >= 900 || img.naturalHeight >= 900 ? 8
     : img.naturalWidth >= 600 || img.naturalHeight >= 600 ? 5 : 0;
@@ -557,19 +479,18 @@ export function photoJunk(
   meta: { family: Family; title: string; creator?: string; provider?: string },
 ): string | null {
   if (!scan.photo) return null;
-  if (meta.family === 'meme') return null; /* meme lane wants cursed people-photos */
+  if (meta.family === 'meme') return null;
   if (scan.skin >= 0.03) return 'flesh & blood (skin + photo signature)';
   if (BANNED_HUMAN.test(meta.title)) return 'real-person photograph';
   if (POLICY_ANY.has(meta.family)) return null;
   const blob = `${meta.title} ${meta.creator ?? ''} ${meta.provider ?? ''}`;
-  if (STRONG_ART.test(meta.title) || ART_PROOF.test(blob) || ARTIST_PROOF.test(blob)) return null;
+  if (ART_PROOF.test(blob) || ARTIST_PROOF.test(blob)) return null;
   return 'unproven photo on a print lineage';
 }
 
 /* ================================================================== */
 /*  PER-SOURCE QUEUE                                                    */
 /* ================================================================== */
-
 function shuffle<T>(arr: T[]): T[] {
   const out = [...arr];
   for (let i = out.length - 1; i > 0; i--) {
@@ -606,7 +527,7 @@ export class LiveQueue {
     if (inflight >= MAX_INFLIGHT) return;
     const now = Date.now();
     const museumOpen = MUSEUM_ORDER.some(m => now >= mvNext[m]);
-    if (now < ovNext && now < cwNext && !museumOpen) return; /* throttled no-op: don't rotate */
+    if (now < ovNext && now < cwNext && !museumOpen) return;
     this.inFlight = true;
     inflight++;
     const term = this.terms[this.termIdx % this.terms.length];
