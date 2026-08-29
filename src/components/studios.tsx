@@ -40,10 +40,38 @@ function loadImgEl(url: string): Promise<HTMLImageElement> {
    gets a fresh UUID, its archive's uuid bytes are rewritten in place (same
    length, so the binary plist's offset table stays valid), and the folder is
    named by that UUID. */
+/* Procreate uses UPPERCASE UUIDs natively. The folder name, the brushset.plist
+   entry, and the Brush.archive's internal uuid must ALL be byte-identical or
+   Procreate silently drops the brush (→ "empty set"). Keep everything uppercase. */
 function freshUuid(): string {
-  const h = () => Math.floor(Math.random() * 16).toString(16);
+  const h = () => Math.floor(Math.random() * 16).toString(16).toUpperCase();
   const seg = (n: number) => Array.from({ length: n }, h).join('');
-  return `${seg(8)}-${seg(4)}-4${seg(3)}-${'89ab'[Math.floor(Math.random() * 4)]}${seg(3)}-${seg(12)}`;
+  return `${seg(8)}-${seg(4)}-4${seg(3)}-${'89AB'[Math.floor(Math.random() * 4)]}${seg(3)}-${seg(12)}`;
+}
+/* Does the archive actually contain `u` (ASCII or UTF-16)? Used to verify the
+   uuid patch took effect, since a failed patch → uuid mismatch → empty set. */
+function archiveContainsUuid(bytes: Uint8Array, u: string): boolean {
+  const U: number[] = [];
+  for (let i = 0; i < u.length; i++) U.push(u.charCodeAt(i));
+  const findAscii = (): boolean => {
+    outer: for (let i = 0; i + 36 <= bytes.length; i++) {
+      for (let j = 0; j < 36; j++) if (bytes[i + j] !== U[j]) continue outer;
+      return true;
+    }
+    return false;
+  };
+  if (findAscii()) return true;
+  for (const be of [true, false]) {
+    const db = (i: number, j: number) => (be ? i + j * 2 + 1 : i + j * 2);
+    const cb = (i: number, j: number) => (be ? i + j * 2 : i + j * 2 + 1);
+    outer: for (let i = 0; i + 72 <= bytes.length; i++) {
+      for (let j = 0; j < 36; j++) {
+        if (bytes[cb(i, j)] !== 0 || bytes[db(i, j)] !== U[j]) continue outer;
+      }
+      return true;
+    }
+  }
+  return false;
 }
 /* Rewrite every UUID-shaped string in the archive bytes to `nu`. Same-length
    replacement (36 ASCII bytes, or 72 for UTF-16), so no plist offset shift.
@@ -691,8 +719,17 @@ export function BrushForge({ onLog }: { onLog: (level: LogLine['level'], msg: st
         const stroke = gShape ? await renderStrokePreview(gShape, gGrain, rnd) : '';
         const uuid = freshUuid();
         const files: Record<string, Uint8Array> = { ...t.files };
-        /* patch the archive's internal uuid to the fresh folder uuid */
-        if (files['Brush.archive']) files['Brush.archive'] = patchArchiveUuid(files['Brush.archive'], uuid);
+        /* patch the archive's internal uuid to the fresh folder uuid, then
+           VERIFY it took effect — a silent no-op here is exactly what makes
+           Procreate report an empty set */
+        if (files['Brush.archive']) {
+          files['Brush.archive'] = patchArchiveUuid(files['Brush.archive'], uuid);
+          if (!archiveContainsUuid(files['Brush.archive'], uuid)) {
+            onLog('warn', `forge: "${t.name}" archive has no patchable uuid — Procreate may ignore it`);
+          }
+        } else {
+          onLog('warn', `forge: "${t.name}" has no Brush.archive — skipped`);
+        }
         made.push({
           id: `${t.name}-${i}-${seed}`,
           uuid,
@@ -716,14 +753,7 @@ export function BrushForge({ onLog }: { onLog: (level: LogLine['level'], msg: st
     setBusy(true);
     try {
       const setName = `SALVAGE9 ${VIBES[vibe].label}`;
-      const out: Record<string, Uint8Array> = {};
-      for (const b of previews) {
-        for (const [p, d] of Object.entries(b.files)) out[`${b.dir}/${p}`] = d;
-        if (b.shape) out[`${b.dir}/Shape.png`] = b.shape;
-        if (b.grain) out[`${b.dir}/Grain.png`] = b.grain;
-        if (b.stroke) out[`${b.dir}/QuickLook/Thumbnail.png`] = await dataUrlToPng(b.stroke);
-      }
-      /* container plist — this is what Procreate reads to find the brushes */
+      /* container plist FIRST — Procreate reads this to find the brushes */
       const brushEntries = previews.map(b => `\t\t<string>${b.uuid}</string>`).join('\n');
       const plist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
