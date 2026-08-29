@@ -46,40 +46,52 @@ function freshUuid(): string {
   return `${seg(8)}-${seg(4)}-4${seg(3)}-${'89ab'[Math.floor(Math.random() * 4)]}${seg(3)}-${seg(12)}`;
 }
 /* Rewrite every UUID-shaped string in the archive bytes to `nu`. Same-length
-   replacement (36 ASCII bytes, or 72 for UTF-16), so no plist offset shift. */
+   replacement (36 ASCII bytes, or 72 for UTF-16), so no plist offset shift.
+   Pure linear byte scan — NO whole-file string round-trip (that was O(n²)
+   and froze "FORGING…" on multi-MB archives). */
 function patchArchiveUuid(bytes: Uint8Array, nu: string): Uint8Array {
   const out = new Uint8Array(bytes);
-  /* ASCII pass — the standard NSKeyedArchiver encoding for uuid strings */
-  const uuidRe = /[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/g;
-  let s = '';
-  for (let i = 0; i < out.length; i++) s += String.fromCharCode(out[i]);
-  s = s.replace(uuidRe, nu);
-  for (let i = 0; i < out.length; i++) out[i] = s.charCodeAt(i) & 0xff;
-  /* UTF-16 pass (LE then BE) — NSKeyedArchiver can store uuids as UTF-16 */
-  const matches16 = (be: boolean): number[] => {
-    const pos: number[] = [];
+  const NU: number[] = [];
+  for (let i = 0; i < nu.length; i++) NU.push(nu.charCodeAt(i)); /* 36 ASCII bytes */
+  const isHex = (b: number) =>
+    (b >= 48 && b <= 57) || (b >= 65 && b <= 70) || (b >= 97 && b <= 102);
+  const DASH = 45;
+
+  /* ---- ASCII pass: 8-4-4-4-12 hex-dash pattern ---- */
+  for (let i = 0; i + 36 <= out.length; i++) {
+    /* fast reject on the four dash positions */
+    if (out[i + 8] !== DASH || out[i + 13] !== DASH || out[i + 18] !== DASH || out[i + 23] !== DASH) continue;
+    let ok = true;
+    for (let j = 0; j < 36 && ok; j++) {
+      if (j === 8 || j === 13 || j === 18 || j === 23) continue;
+      if (!isHex(out[i + j])) ok = false;
+    }
+    if (ok) {
+      for (let j = 0; j < 36; j++) out[i + j] = NU[j];
+      i += 35; /* skip past this uuid */
+    }
+  }
+
+  /* ---- UTF-16 pass (BE, then LE) — plist stores UTF-16 big-endian ---- */
+  for (const be of [true, false]) {
+    /* dash char j sits at byte i + j*2 (LE: char=low byte) or i + j*2 + 1 (BE) */
+    const db = (i: number, j: number) => (be ? i + j * 2 + 1 : i + j * 2);
+    const cb = (i: number, j: number) => (be ? i + j * 2 : i + j * 2 + 1); /* char / high byte */
     for (let i = 0; i + 72 <= out.length; i++) {
+      if (out[db(i, 8)] !== DASH || out[db(i, 13)] !== DASH || out[db(i, 18)] !== DASH || out[db(i, 23)] !== DASH) continue;
       let ok = true;
       for (let j = 0; j < 36 && ok; j++) {
-        const lo = be ? i + j * 2 + 1 : i + j * 2;      /* low byte = ascii char */
-        const hi = be ? i + j * 2 : i + j * 2 + 1;      /* high byte must be 0 */
-        ok = out[hi] === 0 && out[lo] === nu.charCodeAt(j);
+        if (j === 8 || j === 13 || j === 18 || j === 23) { if (out[cb(i, j)] !== 0) ok = false; continue; }
+        if (out[cb(i, j)] !== 0 || !isHex(out[db(i, j)])) ok = false;
       }
-      if (ok) pos.push(i);
+      if (ok) {
+        for (let j = 0; j < 36; j++) {
+          out[cb(i, j)] = 0;
+          out[db(i, j)] = NU[j];
+        }
+        i += 71;
+      }
     }
-    return pos;
-  };
-  const enc16 = (be: boolean): number[] => {
-    const b: number[] = [];
-    for (const ch of nu) {
-      const c = ch.charCodeAt(0);
-      if (be) b.push(0, c); else b.push(c, 0);
-    }
-    return b;
-  };
-  for (const be of [false, true]) {
-    const target = enc16(be);
-    for (const pos of matches16(be)) for (let j = 0; j < 72; j++) out[pos + j] = target[j];
   }
   return out;
 }
@@ -583,9 +595,22 @@ export function BrushForge({ onLog }: { onLog: (level: LogLine['level'], msg: st
     const url = URL.createObjectURL(new Blob([toBlobPart(png)]));
     try {
       const img = await loadImgEl(url);
-      const w = img.naturalWidth, h = img.naturalHeight;
+      /* cap the working texture — brush tips never need more than ~1024px,
+         and glitching a multi-MP texture across 16 brushes is what makes
+         FORGE crawl. Downscale first, glitch the smaller one. */
+      const CAP = 1024;
+      const sc = Math.min(1, CAP / Math.max(img.naturalWidth, img.naturalHeight));
+      const w = Math.max(1, Math.round(img.naturalWidth * sc));
+      const h = Math.max(1, Math.round(img.naturalHeight * sc));
+      let el: HTMLImageElement | HTMLCanvasElement = img;
+      if (sc < 1) {
+        const dc = document.createElement('canvas');
+        dc.width = w; dc.height = h;
+        const dx = dc.getContext('2d');
+        if (dx) { dx.drawImage(img, 0, 0, w, h); el = dc; }
+      }
       const jit = () => Math.floor(rnd() * v.jitter);
-      const { canvas } = renderGlitch({ el: img, w, h }, w, h, {
+      const { canvas } = renderGlitch({ el, w, h }, w, h, {
         ...DEFAULT_PARAMS,
         seed: Math.floor(rnd() * 99999),
         rgb: v.rgb + Math.floor((rnd() - 0.5) * v.jitter),
