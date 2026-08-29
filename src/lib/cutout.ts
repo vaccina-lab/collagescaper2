@@ -35,8 +35,9 @@ const pool: Worker[] = [];
 const broken: boolean[] = [];
 let rr = 0;
 let nextReqId = 1;
+interface MatteResult { dims: number[]; data: Float32Array; model: string }
 const pending = new Map<number, {
-  resolve: (v: { dims: number[];  Float32Array; model: string }) => void;
+  resolve: (v: MatteResult) => void;
   reject: (e: Error) => void;
 }>();
 
