@@ -1,1 +1,180 @@
 @import "tailwindcss";
+
+@theme {
+  --color-paper: #e9e4d4;
+  --color-paper2: #f5f1e3;
+  --color-ink: #1d1912;
+  --color-ink2: #4a4335;
+  --color-faint: #8a8270;
+  --color-verm: #c6401e;
+  --color-ultra: #2c46c8;
+  --color-moss: #61703f;
+  --color-gold: #d99a2b;
+  --font-display: "Bricolage Grotesque", "Arial Black", sans-serif;
+  --font-mono: "IBM Plex Mono", "Courier New", monospace;
+  --font-sans: "IBM Plex Sans", sans-serif;
+}
+
+/* semantic chrome vars — night mode is one class, not a thousand overrides */
+:root {
+  --bg: #e9e4d4;
+  --panel: #f5f1e3;
+  --panel2: #efe9d8;
+  --fg: #1d1912;
+  --fg2: #4a4335;
+  --mut: #8a8270;
+  --line: #1d1912;
+  --line-soft: rgba(29, 25, 18, 0.16);
+  --shadow-ink: rgba(29, 25, 18, 0.9);
+  --dot: rgba(29, 25, 18, 0.055);
+}
+.night {
+  --bg: #14110c;
+  --panel: #1d1912;
+  --panel2: #241f16;
+  --fg: #e9e4d4;
+  --fg2: #b8b09c;
+  --mut: #8a8270;
+  --line: #e9e4d4;
+  --line-soft: rgba(233, 228, 212, 0.14);
+  --shadow-ink: rgba(0, 0, 0, 0.65);
+  --dot: rgba(233, 228, 212, 0.05);
+}
+
+html, body {
+  margin: 0;
+  background-color: var(--bg);
+  color: var(--fg);
+  scroll-behavior: smooth;
+  overflow-x: hidden;
+}
+body { font-family: var(--font-mono); min-height: 100vh; }
+::selection { background: var(--color-ultra); color: var(--color-paper2); }
+
+/* ---------- layered ambient machine room ---------- */
+.ambient {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background-image: radial-gradient(var(--dot) 1px, transparent 1px);
+  background-size: 26px 26px;
+  animation: ambient-pan 90s linear infinite;
+}
+.ambient-mark {
+  position: fixed; right: -140px; top: 50%; z-index: 0;
+  width: 560px; height: 560px; margin-top: -280px;
+  pointer-events: none; opacity: 0.07; color: var(--fg);
+  animation: mark-rot 240s linear infinite;
+}
+.ambient-glow {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background:
+    radial-gradient(900px 600px at 85% -10%, rgba(198, 64, 30, 0.07), transparent 60%),
+    radial-gradient(800px 500px at -10% 110%, rgba(44, 70, 200, 0.07), transparent 60%);
+}
+@keyframes ambient-pan { to { background-position: 26px 52px; } }
+@keyframes mark-rot { to { transform: rotate(360deg); } }
+
+/* ---------- film grain ---------- */
+.noise-layer {
+  position: fixed; inset: 0; z-index: 60; pointer-events: none;
+  opacity: 0.07; mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+.night .noise-layer { mix-blend-mode: screen; opacity: 0.05; }
+
+/* ---------- keyframes ---------- */
+@keyframes rise-in { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+@keyframes stamp-in { 0% { opacity: 0; transform: rotate(-22deg) scale(2.4); } 60% { opacity: 1; transform: rotate(-7deg) scale(0.9); } 100% { opacity: 0.92; transform: rotate(-7deg) scale(1); } }
+@keyframes blink-cursor { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+@keyframes led-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(126, 190, 92, 0.65); } 50% { box-shadow: 0 0 0 7px rgba(126, 190, 92, 0); } }
+@keyframes scan-y { from { top: -18%; } to { top: 112%; } }
+@keyframes stripes-move { to { background-position: 26px 0; } }
+@keyframes dash-crawl { to { background-position: -22px 0; } }
+@keyframes shimmer-x { from { background-position: -180% 0; } to { background-position: 180% 0; } }
+@keyframes ticker-roll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+@keyframes chip-pulse { 0%, 100% { box-shadow: 4px 4px 0 var(--shadow-ink), 0 0 0 0 rgba(198,64,30,0.5); } 50% { box-shadow: 4px 4px 0 var(--shadow-ink), 0 0 0 8px rgba(198,64,30,0); } }
+
+.anim-rise { animation: rise-in 0.45s cubic-bezier(0.22, 0.9, 0.3, 1) both; }
+.anim-stamp { animation: stamp-in 0.38s cubic-bezier(0.2, 1.4, 0.4, 1) both; }
+.anim-blink { animation: blink-cursor 1s steps(1) infinite; }
+.anim-led { animation: led-pulse 1.6s ease-out infinite; }
+.chip-pulse { animation: chip-pulse 1.6s ease-out infinite; }
+
+.conveyor {
+  background-image: repeating-linear-gradient(-45deg, var(--color-verm) 0 9px, var(--fg) 9px 18px);
+  background-size: 26px 26px;
+  animation: stripes-move 0.9s linear infinite;
+}
+.conveyor-held { background-image: repeating-linear-gradient(-45deg, #3a352a 0 9px, var(--fg) 9px 18px); }
+.dash-live { background-image: repeating-linear-gradient(90deg, var(--fg) 0 10px, transparent 10px 22px); animation: dash-crawl 0.7s linear infinite; }
+.ticker-track { animation: ticker-roll 40s linear infinite; }
+.ticker-track:hover { animation-play-state: paused; }
+
+.shimmer-block {
+  background-image: linear-gradient(100deg, rgba(29,25,18,0.06) 30%, rgba(29,25,18,0.13) 48%, rgba(29,25,18,0.06) 62%);
+  background-size: 220% 100%;
+  animation: shimmer-x 1.3s linear infinite;
+}
+.scan-bar {
+  position: absolute; left: 0; right: 0; height: 22%;
+  background: linear-gradient(180deg, transparent, rgba(44, 70, 200, 0.16), rgba(44, 70, 200, 0.34), transparent);
+  animation: scan-y 1.05s linear infinite;
+}
+
+.checker {
+  background-image: conic-gradient(rgba(29,25,18,0.14) 25%, transparent 0 50%, rgba(29,25,18,0.14) 0 75%, transparent 0);
+  background-size: 14px 14px;
+}
+
+/* ---------- stamp ---------- */
+.stamp {
+  font-family: var(--font-mono); font-weight: 700; letter-spacing: 0.16em;
+  border: 3px solid currentColor; padding: 0.12em 0.5em;
+  transform: rotate(-7deg); mix-blend-mode: multiply;
+  line-height: 1.15; white-space: nowrap; font-size: 10px;
+  background: color-mix(in srgb, var(--panel) 78%, transparent);
+}
+
+/* ---------- masking tape on feed cards ---------- */
+.tape {
+  position: absolute; top: -9px; left: 50%; width: 74px; height: 20px; z-index: 2;
+  transform: translateX(-50%) rotate(-3deg);
+  background: rgba(217, 154, 43, 0.5);
+  border-left: 2px dashed rgba(255, 255, 255, 0.55);
+  border-right: 2px dashed rgba(255, 255, 255, 0.55);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+}
+
+/* ---------- range slider ---------- */
+input[type="range"].gate-range { -webkit-appearance: none; appearance: none; width: 100%; height: 26px; background: transparent; cursor: ew-resize; }
+input[type="range"].gate-range::-webkit-slider-runnable-track { height: 5px; background: var(--fg); }
+input[type="range"].gate-range::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; width: 20px; height: 20px; margin-top: -8px;
+  background: var(--panel); border: 3px solid var(--color-verm); border-radius: 0;
+  transition: transform 0.12s ease;
+}
+input[type="range"].gate-range::-webkit-slider-thumb:hover { transform: scale(1.18) rotate(45deg); }
+input[type="range"].gate-range::-moz-range-track { height: 5px; background: var(--fg); }
+input[type="range"].gate-range::-moz-range-thumb { width: 14px; height: 14px; background: var(--panel); border: 3px solid var(--color-verm); border-radius: 0; }
+
+/* ---------- slim scrollbars ---------- */
+.scroll-slim::-webkit-scrollbar { width: 8px; height: 8px; }
+.scroll-slim::-webkit-scrollbar-track { background: transparent; }
+.scroll-slim::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--fg) 32%, transparent); border: 2px solid transparent; background-clip: padding-box; }
+
+/* ---------- content-visibility for feed cards ---------- */
+.cv-card { content-visibility: auto; contain-intrinsic-size: 420px; }
+
+/* ---------- log panel stays dark in both themes (it is the CRT) ---------- */
+.logdark { --line-soft: rgba(233, 228, 212, 0.14); }
+
+/* ---------- kbd ---------- */
+kbd { font-family: var(--font-mono); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
