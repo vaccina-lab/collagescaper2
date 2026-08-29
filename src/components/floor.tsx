@@ -98,6 +98,52 @@ export async function exportTrayBatch(
   return { count: done - failed, failed, mb: Math.round(bytes / 1048576), blob, name };
 }
 
+/* Cutouts-only: grab just the isolated subjects (plates with a cutoutSrc)
+   and zip them as transparent PNGs (alpha preserved — no JPEG flattening). */
+async function imgToPngBlob(img: HTMLImageElement, maxDim: number): Promise<Blob> {
+  const scale = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight));
+  const w = Math.max(1, Math.round(img.naturalWidth * scale));
+  const h = Math.max(1, Math.round(img.naturalHeight * scale));
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const x = c.getContext('2d');
+  if (!x) throw new Error('no canvas');
+  x.drawImage(img, 0, 0, w, h); /* transparent background kept */
+  return await new Promise<Blob>((res, rej) => c.toBlob(b => (b ? res(b) : rej(new Error('encode failed'))), 'image/png'));
+}
+
+export async function exportTrayCutouts(
+  items: Specimen[],
+  onProgress: (done: number, total: number, failed: number, mb: number) => void,
+): Promise<{ count: number; failed: number; mb: number; blob: Blob; name: string }> {
+  const zip = new JSZip();
+  const folder = zip.folder('salvage9-cutouts');
+  if (!folder) throw new Error('zip failed');
+  const total = items.length;
+  let done = 0, failed = 0, bytes = 0;
+  const used = new Set<string>();
+  for (const it of items) {
+    if (!it.cutoutSrc) { failed++; done++; onProgress(done, total, failed, Math.round(bytes / 1048576)); continue; }
+    try {
+      const img = await loadImgEl(it.cutoutSrc);
+      const blob = await imgToPngBlob(img, 1400);
+      if (!(await blobIsUsable(blob))) throw new Error('unusable');
+      let name = `${it.code.replace(/[^a-z0-9.-]/gi, '_')}.png`;
+      let n = 1;
+      while (used.has(name)) name = `${it.code.replace(/[^a-z0-9.-]/gi, '_')}-${++n}.png`;
+      used.add(name);
+      folder.file(name, blob);
+      bytes += blob.size;
+    } catch { failed++; }
+    done++;
+    onProgress(done, total, failed, Math.round(bytes / 1048576));
+  }
+  const blob = await zip.generateAsync({ type: 'blob' });
+  const name = `salvage9-cutouts-${items.length}.zip`;
+  downloadBlob(blob, name);
+  return { count: done - failed, failed, mb: Math.round(bytes / 1048576), blob, name };
+}
+
 export async function exportTraySheet(items: Specimen[], gate: number): Promise<{ w: number; h: number; count: number }> {
   if (items.length === 0) throw new Error('empty tray');
   const cols = 4, cell = 320, gap = 16, pad = 28, headH = 130;
