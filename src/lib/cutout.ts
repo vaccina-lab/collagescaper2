@@ -284,6 +284,28 @@ function backgroundFlood(img: HTMLImageElement, w: number, h: number): HTMLCanva
       }
     }
   }
+  /* Fringe peel: the flood leaves a bg-colored halo (the "smudge"). Peel
+     bg-colored semi-transparent pixels and opaque fringe touching removed
+     background — but ONLY pixels actually close to the bg color, so the
+     subject (which differs in color) is never touched. */
+  for (let iter = 0; iter < 2; iter++) {
+    const toRemove: number[] = [];
+    for (let p = 0; p < N; p++) {
+      if (visited[p]) continue;
+      const a = od[p * 4 + 3];
+      const isBgColored = dist(p) < 64;
+      if (!isBgColored) continue;
+      if (a < 128) { toRemove.push(p); continue; }
+      const px = p % w, py = (p / w) | 0;
+      const near = (px > 0 && visited[p - 1]) || (px < w - 1 && visited[p + 1]) || (py > 0 && visited[p - w]) || (py < h - 1 && visited[p + w]);
+      if (near) toRemove.push(p);
+    }
+    for (const p of toRemove) { visited[p] = 1; od[p * 4 + 3] = 0; }
+  }
+  /* kill faint partial-alpha residue so no translucent smudge survives */
+  for (let p = 0; p < N; p++) {
+    if (od[p * 4 + 3] > 0 && od[p * 4 + 3] < 50) od[p * 4 + 3] = 0;
+  }
   x.putImageData(out, 0, 0);
   return c;
 }
@@ -377,15 +399,14 @@ export async function isolateFromUrl(url: string, quality: 'fast' | 'fine' = 'fa
     } catch { /* fall through to model */ }
   }
 
-  /* solid color background → flood */
+  /* solid color background → flood (no interior stripping — trust the flood) */
   const floodC = backgroundFlood(img, w, h);
   if (floodC) {
     const bb = opaqueBBox(floodC);
     if (bb && bb.coverage > 0.004 && bb.coverage < 0.97) {
       const tight = tightCrop(floodC);
       if (tight) {
-        const twice = removeInteriorFlatRegions(tight);
-        return { dataUrl: canvasToDataUrl(twice), width: twice.width, height: twice.height, engine: 'flood' };
+        return { dataUrl: canvasToDataUrl(tight), width: tight.width, height: tight.height, engine: 'flood' };
       }
     }
   }
@@ -409,13 +430,14 @@ export async function isolateFromUrl(url: string, quality: 'fast' | 'fine' = 'fa
   const mid = mx.createImageData(mw, mh);
   for (let p = 0; p < mw * mh * 4; p++) mid.data[p] = alpha[p];
   mx.putImageData(mid, 0, 0);
-  /* compose matte over the subject */
+  /* compose matte over the subject — TRUST THE MODEL. Do NOT strip enclosed
+     bright regions here: that ate building facades (Space Needle), painting
+     highlights, illuminated-manuscript letter fills and subject interiors. */
   const [res, rx] = ctx2d(mw, mh);
   rx.drawImage(c, 0, 0, mw, mh);
   rx.globalCompositeOperation = 'destination-in';
   rx.drawImage(mc, 0, 0);
-  let out = res;
-  out = removeInteriorFlatRegions(out); /* drop enclosed paper blocks (B&W only) */
+  const out = res;
   if (quality === 'fine') {
     const bb = opaqueBBox(out);
     if (bb && bb.coverage > 0.004 && bb.coverage < 0.55) {

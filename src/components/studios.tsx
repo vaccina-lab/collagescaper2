@@ -753,6 +753,14 @@ export function BrushForge({ onLog }: { onLog: (level: LogLine['level'], msg: st
     setBusy(true);
     try {
       const setName = `SALVAGE9 ${VIBES[vibe].label}`;
+      /* build each brush folder, named by its UUID */
+      const out: Record<string, Uint8Array> = {};
+      for (const b of previews) {
+        for (const [p, d] of Object.entries(b.files)) out[`${b.dir}/${p}`] = d;
+        if (b.shape) out[`${b.dir}/Shape.png`] = b.shape;
+        if (b.grain) out[`${b.dir}/Grain.png`] = b.grain;
+        if (b.stroke) out[`${b.dir}/QuickLook/Thumbnail.png`] = await dataUrlToPng(b.stroke);
+      }
       /* container plist FIRST — Procreate reads this to find the brushes */
       const brushEntries = previews.map(b => `\t\t<string>${b.uuid}</string>`).join('\n');
       const plist = `<?xml version="1.0" encoding="UTF-8"?>
