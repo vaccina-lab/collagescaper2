@@ -423,7 +423,11 @@ export function analyzePlate(img: HTMLImageElement): PlateScan {
   let dark = 0, light = 0;
   for (let b = 0; b < 5; b++) dark += hist[b];
   for (let b = 11; b < 16; b++) light += hist[b];
-  let rows = 0;
+  /* text-page signature that survives yellowed/aged paper: count rows that
+     have several short horizontal runs (words) and moderate ink coverage,
+     then require MANY such rows plus more empty/margin rows than dense rows
+     (which is what separates spaced-out text lines from a dense engraving). */
+  let textRows = 0, denseRows = 0, emptyRows = 0;
   for (let y = 2; y < S - 2; y++) {
     let runs = 0, inRun = false, runLen = 0, ink = 0;
     for (let xx = 0; xx < S; xx++) {
@@ -432,9 +436,13 @@ export function analyzePlate(img: HTMLImageElement): PlateScan {
       else if (inRun) { if (runLen > S * 0.3) runs--; inRun = false; }
     }
     if (inRun && runLen > S * 0.3) runs--;
-    if (ink / S > 0.08 && ink / S < 0.6 && runs >= 3) rows++;
+    const frac = ink / S;
+    if (frac < 0.04) emptyRows++;
+    else if (frac > 0.5) denseRows++;
+    else if (runs >= 3) textRows++;
   }
-  const textPage = light / N > 0.4 && edgeDensity > 0.1 && rows >= 6 && avgChroma < 30 && dark / N > 0.04;
+  const textRowFrac = textRows / (S - 4);
+  const textPage = textRowFrac > 0.22 && textRows >= 9 && emptyRows > denseRows && avgChroma < 50;
   let bandL = S, bandR = -1, nonDenseInk = 0, bandInk = 0;
   for (let y = 0; y < S; y++) {
     let ink = 0, left = -1, right = -1;

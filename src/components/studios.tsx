@@ -153,7 +153,7 @@ export function GlitchLab({ feed, tray, zap, onLog }: {
             ) : sources.map(sp => (
               <button key={sp.id} type="button" onClick={() => setSrcId(sp.id)}
                 className={`overflow-hidden border-2 ${sp.id === srcId ? 'border-verm' : 'border-[var(--line-soft)] hover:border-[var(--line)]'}`}>
-                <img src={sp.cutoutSrc ?? sp.thumb ?? sp.dataUri} alt={sp.code} loading="lazy" referrerPolicy="no-referrer" className={`block aspect-square w-full ${sp.cutoutSrc ? 'checker object-contain' : 'object-cover'}`} />
+                <img src={sp.cutoutSrc ?? sp.thumb ?? sp.dataUri} alt="" aria-hidden="true" loading="lazy" referrerPolicy="no-referrer" className={`block aspect-square w-full ${sp.cutoutSrc ? 'checker object-contain' : 'object-cover'}`} />
               </button>
             ))}
           </div>
@@ -361,7 +361,7 @@ export function CollageDesk({ feed, tray, onLog }: {
             ) : candidates.slice(0, 60).map(sp => (
               <button key={sp.id} type="button" onClick={() => addFrom(sp)} title={`add ${sp.archetype}`}
                 className="overflow-hidden border border-[var(--line-soft)] hover:border-verm">
-                <img src={sp.cutoutSrc ?? sp.thumb ?? sp.dataUri} alt={sp.code} loading="lazy" referrerPolicy="no-referrer" className={`block aspect-square w-full ${sp.cutoutSrc ? 'checker object-contain' : 'object-cover'}`} />
+                <img src={sp.cutoutSrc ?? sp.thumb ?? sp.dataUri} alt="" aria-hidden="true" loading="lazy" referrerPolicy="no-referrer" className={`block aspect-square w-full ${sp.cutoutSrc ? 'checker object-contain' : 'object-cover'}`} />
               </button>
             ))}
           </div>

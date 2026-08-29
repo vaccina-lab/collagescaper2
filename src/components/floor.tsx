@@ -158,7 +158,7 @@ export const SpecimenCard = memo(function SpecimenCard({ sp, inTray, onInspect, 
       {taped && <span className="tape" aria-hidden="true" />}
       <button type="button" onClick={() => onInspect(sp)} className="relative block w-full cursor-zoom-in overflow-hidden border-b-2 border-[var(--line-soft)]" aria-label={`inspect ${sp.code}`}>
         <div style={{ aspectRatio: String(sp.aspect) }} className={`relative w-full bg-[var(--line-soft)] ${sp.cutoutSrc ? 'checker' : ''}`}>
-          <img src={sp.cutoutSrc ?? sp.thumb ?? sp.dataUri} alt={`${sp.archetype} — ${sp.code}`} loading="lazy" decoding="async" referrerPolicy="no-referrer"
+          <img src={sp.cutoutSrc ?? sp.thumb ?? sp.dataUri} alt="" aria-hidden="true" loading="lazy" decoding="async" referrerPolicy="no-referrer"
             className={`absolute inset-0 h-full w-full ${sp.cutoutSrc ? 'object-contain' : 'object-cover'} transition-transform duration-500 group-hover:scale-[1.03] ${rejected ? 'grayscale-[0.7]' : ''} ${judged ? '' : 'opacity-40'}`} />
           {!judged && (
             <div className="shimmer-block absolute inset-0 grid place-items-center">
@@ -363,7 +363,7 @@ export function TrayRail({ tray, busySheet, batch, archive, gate, onInspect, onR
             {tray.map(sp => (
               <button key={sp.id} type="button" onClick={() => onInspect(sp)} className="group relative block overflow-hidden border border-[var(--line-soft)]">
                 <span className={`block ${sp.cutoutSrc ? 'checker' : ''}`}>
-                  <img src={sp.cutoutSrc ?? sp.thumb ?? sp.dataUri} alt={sp.code} loading="lazy" referrerPolicy="no-referrer"
+                  <img src={sp.cutoutSrc ?? sp.thumb ?? sp.dataUri} alt="" aria-hidden="true" loading="lazy" referrerPolicy="no-referrer"
                     className={`block aspect-square w-full ${sp.cutoutSrc ? 'object-contain' : 'object-cover'}`} />
                 </span>
                 {sp.cutoutSrc && <span className="absolute left-0.5 top-0.5 bg-verm px-1 font-mono text-[8px] font-bold text-[#f5f1e3]">✂</span>}
@@ -397,7 +397,7 @@ export function Lightbox({ sp, tray, pace, onPace, onClose, onCut, onBin, onDown
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4" onClick={onClose}>
       <div className="max-h-[90vh] max-w-3xl overflow-y-auto border-2 border-[var(--line)] bg-[var(--panel)] p-4 shadow-[8px_8px_0_var(--shadow-ink)] scroll-slim" onClick={e => e.stopPropagation()}>
         <div className={`grid place-items-center ${sp.cutoutSrc ? 'checker' : 'bg-[var(--line-soft)]'}`}>
-          <img src={sp.cutoutSrc ?? sp.dataUri} alt={sp.archetype} referrerPolicy="no-referrer"
+          <img src={sp.cutoutSrc ?? sp.dataUri} alt="" aria-hidden="true" referrerPolicy="no-referrer"
             className={`mx-auto max-h-[52vh] ${sp.cutoutSrc ? 'object-contain' : 'object-contain'}`} />
         </div>
         <div className="mt-3 flex items-center justify-between gap-2">

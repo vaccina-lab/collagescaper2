@@ -28,7 +28,7 @@
   --shadow-ink: rgba(29, 25, 18, 0.9);
   --dot: rgba(29, 25, 18, 0.055);
 }
-.night {
+html.night {
   --bg: #14110c;
   --panel: #1d1912;
   --panel2: #241f16;

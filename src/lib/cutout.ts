@@ -289,12 +289,51 @@ function backgroundFlood(img: HTMLImageElement, w: number, h: number): HTMLCanva
 }
 
 function removeInteriorFlatRegions(c: HTMLCanvasElement): HTMLCanvasElement {
-  /* only remove nested regions that are big AND flat AND paper-bright */
+  /* Removes enclosed paper blocks — the white regions trapped inside the
+     subject's outline (e.g. the white between a skeleton's bone lines) that
+     a background flood can't reach because they're sealed off by ink.
+     Safety: only runs on low-chroma (B&W) cutouts, and only removes bright
+     opaque components that DON'T touch the image border. */
   const x = c.getContext('2d', { willReadFrequently: true });
   if (!x) return c;
-  const { data, width: w, height: h } = x.getImageData(0, 0, c.width, c.height);
-  void data; void w; void h;
-  /* keep it simple: no-op unless clearly warranted (safety first) */
+  const img = x.getImageData(0, 0, c.width, c.height);
+  const d = img.data;
+  const w = c.width, h = c.height, N = w * h;
+  const lum = new Float32Array(N);
+  let chromaSum = 0;
+  for (let p = 0; p < N; p++) {
+    const r = d[p * 4], g = d[p * 4 + 1], b = d[p * 4 + 2];
+    lum[p] = r * 0.299 + g * 0.587 + b * 0.114;
+    chromaSum += Math.max(r, g, b) - Math.min(r, g, b);
+  }
+  if (chromaSum / N > 40) return c; /* colorful — leave it alone */
+  const opaque = (p: number) => d[p * 4 + 3] >= 40;
+  const bright = (p: number) => lum[p] > 185;
+  const visited = new Uint8Array(N);
+  for (let start = 0; start < N; start++) {
+    if (visited[start] || !opaque(start) || !bright(start)) continue;
+    const stack = [start];
+    const comp: number[] = [];
+    let touchesBorder = false;
+    visited[start] = 1;
+    while (stack.length) {
+      const p = stack.pop()!;
+      comp.push(p);
+      const px = p % w, py = (p / w) | 0;
+      if (px === 0 || px === w - 1 || py === 0 || py === h - 1) touchesBorder = true;
+      const nb = [];
+      if (px > 0) nb.push(p - 1);
+      if (px < w - 1) nb.push(p + 1);
+      if (py > 0) nb.push(p - w);
+      if (py < h - 1) nb.push(p + w);
+      for (const q of nb) if (!visited[q] && opaque(q) && bright(q)) { visited[q] = 1; stack.push(q); }
+    }
+    /* an enclosed bright block (sealed off from the border) is paper — remove it */
+    if (!touchesBorder && comp.length >= 20) {
+      for (const p of comp) d[p * 4 + 3] = 0;
+    }
+  }
+  x.putImageData(img, 0, 0);
   return c;
 }
 
@@ -376,6 +415,7 @@ export async function isolateFromUrl(url: string, quality: 'fast' | 'fine' = 'fa
   rx.globalCompositeOperation = 'destination-in';
   rx.drawImage(mc, 0, 0);
   let out = res;
+  out = removeInteriorFlatRegions(out); /* drop enclosed paper blocks (B&W only) */
   if (quality === 'fine') {
     const bb = opaqueBBox(out);
     if (bb && bb.coverage > 0.004 && bb.coverage < 0.55) {

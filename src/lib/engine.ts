@@ -778,20 +778,21 @@ export function useCrawler() {
     say('sys', p === 'rapid' ? 'crawl pace → RAPID — spiders on amphetamines' : 'crawl pace → CRUISE — steady, considered drip');
   };
   const toggleRun = () => {
-    setRunning(r => {
-      if (r) {
-        const s = statsRef.current;
-        const cuts = trayRef.current;
-        const rate = s.seen > 0 ? ((s.passed / s.seen) * 100).toFixed(1) : '0.0';
-        const best = cuts.length ? Math.max(...cuts.map(t => t.score)) : 0;
-        say('warn', `HOLD — shift report: ${s.seen} plates seen · ${rate}% passed · ${cuts.length} cuts in tray${best ? ` · best ${best}` : ''}`);
-      } else {
-        heldByTray.current = false;
-        setTrayHeld(false);
-        say('sys', 'RESUME — spiders redeployed');
-      }
-      return !r;
-    });
+    /* don't call say() inside a setState updater — StrictMode double-invokes
+       updaters, and a nested setLog during render is what crashed HOLD */
+    const r = running;
+    setRunning(!r);
+    if (r) {
+      const s = statsRef.current;
+      const cuts = trayRef.current;
+      const rate = s.seen > 0 ? ((s.passed / s.seen) * 100).toFixed(1) : '0.0';
+      const best = cuts.length ? Math.max(...cuts.map(t => t.score)) : 0;
+      say('warn', `HOLD — shift report: ${s.seen} plates seen · ${rate}% passed · ${cuts.length} cuts in tray${best ? ` · best ${best}` : ''}`);
+    } else {
+      heldByTray.current = false;
+      setTrayHeld(false);
+      say('sys', 'RESUME — spiders redeployed');
+    }
   };
   const toggleSource = (id: string) => {
     setSources(s => ({ ...s, [id]: { ...s[id], on: !s[id].on } }));
@@ -800,10 +801,9 @@ export function useCrawler() {
     if (def) say('sys', `${def.code} ${nowOn ? 'opened' : 'closed'}`);
   };
   const toggleAutoCut = () => {
-    setAutoCut(a => {
-      say('sys', `auto-cut ${!a ? 'engaged — passes flow straight to tray' : 'disengaged — manual cuts only'}`);
-      return !a;
-    });
+    const next = !autoCut;
+    setAutoCut(next);
+    say('sys', `auto-cut ${next ? 'engaged — passes flow straight to tray' : 'disengaged — manual cuts only'}`);
   };
   const toggleAutoIso = () => {
     const next = !cfg.current.autoIso;
