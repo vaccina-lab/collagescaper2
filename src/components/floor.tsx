@@ -98,6 +98,49 @@ export async function exportTrayBatch(
   return { count: done - failed, failed, mb: Math.round(bytes / 1048576), blob, name };
 }
 
+/* ---------- cutouts-only export ----------
+   Packs ONLY plates that were isolated (have a cutoutSrc), as PNGs so the
+   alpha channel survives. JPEG would flatten transparency onto white, which
+   is useless for collage. */
+export async function exportCutoutBatch(
+  items: Specimen[],
+  onProgress: (done: number, total: number, failed: number, mb: number) => void,
+): Promise<{ count: number; failed: number; mb: number; blob: Blob; name: string }> {
+  const zip = new JSZip();
+  const folder = zip.folder('salvage9-cutouts');
+  if (!folder) throw new Error('zip failed');
+  const total = items.length;
+  let done = 0, failed = 0, bytes = 0;
+  const used = new Set<string>();
+  for (const it of items) {
+    try {
+      if (!it.cutoutSrc) throw new Error('no cutout');
+      const img = await loadImgEl(it.cutoutSrc);
+      if (img.naturalWidth < 16 || img.naturalHeight < 16) throw new Error('too small');
+      const c = document.createElement('canvas');
+      c.width = img.naturalWidth;
+      c.height = img.naturalHeight;
+      const x = c.getContext('2d');
+      if (!x) throw new Error('no canvas');
+      x.drawImage(img, 0, 0);
+      const blob = await new Promise<Blob>((res, rej) =>
+        c.toBlob(b => (b ? res(b) : rej(new Error('encode failed'))), 'image/png'));
+      let name = `${it.code.replace(/[^a-z0-9.-]/gi, '_')}-cut.png`;
+      let n = 1;
+      while (used.has(name)) name = `${it.code.replace(/[^a-z0-9.-]/gi, '_')}-cut-${++n}.png`;
+      used.add(name);
+      folder.file(name, blob);
+      bytes += blob.size;
+    } catch { failed++; }
+    done++;
+    onProgress(done, total, failed, Math.round(bytes / 1048576));
+  }
+  const blob = await zip.generateAsync({ type: 'blob' });
+  const name = `salvage9-cutouts-${done - failed}.zip`;
+  downloadBlob(blob, name);
+  return { count: done - failed, failed, mb: Math.round(bytes / 1048576), blob, name };
+}
+
 /* Cutouts-only: grab just the isolated subjects (plates with a cutoutSrc)
    and zip them as transparent PNGs (alpha preserved — no JPEG flattening). */
 async function imgToPngBlob(img: HTMLImageElement, maxDim: number): Promise<Blob> {
@@ -353,10 +396,11 @@ export function Feed({ feed, showRejects, trayIds, running, spm, onInspect, onCu
 export function TrayRail({ tray, busySheet, batch, archive, gate, onInspect, onRemove, onClear, onCull, onExport, onBatch, onDismissArchive }: {
   tray: Specimen[]; busySheet: boolean; batch: BatchProgress | null; archive: { url: string; name: string } | null; gate: number;
   onInspect: (sp: Specimen) => void; onRemove: (id: string) => void; onClear: () => void; onCull: () => void;
-  onExport: () => void; onBatch: (mode: 'full' | 'jpg1400') => void; onDismissArchive: () => void;
+  onExport: () => void; onBatch: (mode: 'full' | 'jpg1400' | 'cutouts') => void; onDismissArchive: () => void;
 }) {
   const avg = tray.length ? Math.round(tray.reduce((a, b) => a + b.score, 0) / tray.length) : 0;
   const best = tray.length ? Math.max(...tray.map(t => t.score)) : 0;
+  const cutCount = tray.filter(t => !!t.cutoutSrc).length;
   const packing = batch !== null;
   const pct = packing && batch ? Math.round((batch.done / Math.max(1, batch.total)) * 100) : 0;
   return (
@@ -376,6 +420,10 @@ export function TrayRail({ tray, busySheet, batch, archive, gate, onInspect, onR
           </div>
         ) : (
           <>
+            <button type="button" onClick={() => onBatch('cutouts')} disabled={cutCount === 0 || !!batch}
+              className="col-span-2 flex items-center justify-center gap-2 border-2 border-verm bg-verm px-2 py-1.5 font-mono text-[9px] font-bold tracking-wider text-[#f5f1e3] shadow-[2px_2px_0_var(--shadow-ink)] transition-all hover:-translate-y-0.5 hover:opacity-85 active:translate-y-0 disabled:translate-y-0 disabled:opacity-30">
+              <IcScissors size={11} /> ZIP · CUTOUTS ONLY · {cutCount}
+            </button>
             <button type="button" onClick={() => onBatch('jpg1400')} disabled={tray.length === 0 || !!batch}
               className="border-2 border-moss bg-moss px-2 py-1.5 font-mono text-[9px] font-bold tracking-wider text-[#f5f1e3] hover:opacity-85 disabled:opacity-30"><IcDown size={11} /> ZIP · JPG 1400</button>
             <button type="button" onClick={() => onBatch('full')} disabled={tray.length === 0 || !!batch}

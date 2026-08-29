@@ -663,42 +663,134 @@ export function BrushForge({ onLog }: { onLog: (level: LogLine['level'], msg: st
       c.toBlob(b => (b ? b.arrayBuffer().then(res) : rej(new Error('encode failed'))), 'image/png')));
   };
 
-  return (
-    <main className="mx-auto max-w-[1000px] px-4 py-6 lg:px-6">
-      <h2 className="font-display text-[28px] font-extrabold leading-none tracking-tight text-[var(--fg)]">BRUSH <span className="text-verm">FORGE</span></h2>
-      <p className="mt-1 font-mono text-[10px] tracking-[0.2em] text-[var(--mut)]">LOAD A PROCREATE .BRUSHSET · FORGE GLITCHED COPIES</p>
+  const vibes = Object.entries(VIBES) as Array<[VibeId, VibeParams]>;
 
-      <div className="mt-4 border-2 border-dashed border-[var(--line-soft)] bg-[var(--panel)] p-6 text-center">
-        <p className="font-mono text-[11px] text-[var(--fg2)]">Drop a <strong>.brushset</strong> / <strong>.brush</strong> template, or</p>
-        <button type="button" onClick={() => fileRef.current?.click()}
-          className="mt-2 border-2 border-verm bg-verm px-4 py-2 font-mono text-[11px] font-bold tracking-widest text-[#f5f1e3] hover:bg-[var(--fg)]">CHOOSE FILES</button>
-        <input ref={fileRef} type="file" accept=".brush,.brushset,.zip" multiple className="hidden"
-          onChange={e => void onFiles(e.target.files)} />
-        <div onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); void onFiles(e.dataTransfer.files); }}
-          className="mt-3 border border-dashed border-[var(--line-soft)] py-4 font-mono text-[9px] tracking-widest text-[var(--mut)]">…or drop files here…</div>
-        {templates.length > 0 && (
-          <p className="mt-2 font-mono text-[10px] font-bold text-moss">{templates.length} template(s): {templates.map(t => t.name).slice(0, 4).join(', ')}{templates.length > 4 ? '…' : ''}</p>
+  return (
+    <main className="mx-auto max-w-[1100px] px-4 py-6 lg:px-6">
+      <div className="flex items-end justify-between gap-4">
+        <div>
+          <h2 className="font-display text-[34px] font-extrabold leading-none tracking-tight text-[var(--fg)]">
+            BRUSH <span className="text-verm">FORGE</span>
+          </h2>
+          <p className="mt-1.5 font-mono text-[10px] tracking-[0.24em] text-[var(--mut)]">
+            LOAD A PROCREATE .BRUSHSET · PICK A VIBE · FORGE · DOWNLOAD
+          </p>
+        </div>
+        <div className="hidden items-center gap-2 font-mono text-[9px] tracking-[0.18em] text-[var(--mut)] sm:flex">
+          <span className={`inline-block h-2 w-2 rounded-full ${templates.length > 0 ? 'bg-moss' : 'bg-verm'}`} />
+          {templates.length > 0 ? `${templates.length} TEMPLATE${templates.length > 1 ? 'S' : ''}` : 'NO TEMPLATE'}
+        </div>
+      </div>
+
+      {/* 01 — templates */}
+      <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_1.4fr]">
+        <div className="border-2 border-dashed border-[var(--line-soft)] bg-[var(--panel)] p-5 text-center transition-colors hover:border-verm">
+          <p className="font-mono text-[11px] leading-relaxed text-[var(--fg2)]">
+            Drop a <strong>.brushset</strong> / <strong>.brush</strong> template
+            <br />— or —
+          </p>
+          <button type="button" onClick={() => fileRef.current?.click()}
+            className="mt-3 border-2 border-verm bg-verm px-4 py-2 font-mono text-[11px] font-bold tracking-widest text-[#f5f1e3] shadow-[3px_3px_0_var(--shadow-ink)] transition-transform hover:-translate-y-0.5 active:translate-y-0 hover:bg-[var(--fg)]">
+            CHOOSE FILES
+          </button>
+          <input ref={fileRef} type="file" accept=".brush,.brushset,.zip" multiple className="hidden"
+            onChange={e => void onFiles(e.target.files)} />
+          <div onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); void onFiles(e.dataTransfer.files); }}
+            className="mt-3 border border-dashed border-[var(--line-soft)] py-3 font-mono text-[9px] tracking-widest text-[var(--mut)]">
+            …or drop files here…
+          </div>
+          {templates.length > 0 && (
+            <p className="mt-3 font-mono text-[10px] font-bold leading-relaxed text-moss">
+              {templates.map(t => t.name).slice(0, 4).join(' · ')}{templates.length > 4 ? ` · +${templates.length - 4} more` : ''}
+            </p>
+          )}
+        </div>
+
+        {/* 02 — vibe picker */}
+        <div className="border-2 border-[var(--line)] bg-[var(--panel)] p-4 shadow-[4px_4px_0_var(--shadow-ink)]">
+          <p className="mb-2.5 flex items-center justify-between font-mono text-[9px] font-bold tracking-[0.22em] text-[var(--mut)]">
+            <span>VIBE — {VIBES[vibe].label}</span>
+            <span className="text-[var(--mut)]">10 CATEGORIES</span>
+          </p>
+          <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-5">
+            {vibes.map(([id, v]) => (
+              <button key={id} type="button" onClick={() => setVibe(id)}
+                className={`border-2 px-1.5 py-2 font-mono text-[9px] font-bold tracking-wider transition-all duration-150 hover:-translate-y-0.5 ${
+                  vibe === id
+                    ? 'border-verm bg-verm text-[#f5f1e3] shadow-[2px_2px_0_var(--shadow-ink)]'
+                    : 'border-[var(--line-soft)] text-[var(--fg2)] hover:border-[var(--line)] hover:text-[var(--fg)]'
+                }`}>
+                {v.label}
+              </button>
+            ))}
+          </div>
+
+          {/* controls */}
+          <div className="mt-4 grid items-end gap-3 sm:grid-cols-3">
+            <label className="block">
+              <span className="mb-1 flex justify-between font-mono text-[9px] font-semibold tracking-[0.2em] text-[var(--mut)]">
+                <span>BRUSHES</span><span className="tabular-nums">{count}</span>
+              </span>
+              <input type="range" min={1} max={16} value={count} onChange={e => setCount(Number(e.target.value))} className="gate-range w-full" />
+            </label>
+            <label className="block">
+              <span className="mb-1 block font-mono text-[9px] font-semibold tracking-[0.2em] text-[var(--mut)]">SEED</span>
+              <input value={seed} onChange={e => setSeed(e.target.value)}
+                className="w-full border border-[var(--line)] bg-[var(--panel2)] px-2 py-1 font-mono text-[11px]" />
+            </label>
+            <div className="flex gap-1.5">
+              <button type="button" onClick={() => void reroll()}
+                className="flex-1 border-2 border-gold py-2 font-mono text-[10px] font-bold text-[#8a5f10] transition-all hover:-translate-y-0.5 hover:bg-gold hover:text-black">
+                ⟳ REROLL
+              </button>
+              <button type="button" onClick={() => void forge()} disabled={busy || templates.length === 0}
+                className="flex-1 border-2 border-moss bg-moss py-2 font-mono text-[10px] font-bold tracking-widest text-[#f5f1e3] shadow-[2px_2px_0_var(--shadow-ink)] transition-all hover:-translate-y-0.5 hover:opacity-85 active:translate-y-0 disabled:translate-y-0 disabled:opacity-30">
+                {busy ? 'FORGING…' : '⚒ FORGE'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* 03 — previews */}
+      <div className="mt-5 border-2 border-[var(--line)] bg-[var(--panel)] p-4 shadow-[4px_4px_0_var(--shadow-ink)]">
+        <div className="mb-3 flex items-center justify-between">
+          <p className="font-mono text-[9px] font-bold tracking-[0.22em] text-[var(--mut)]">
+            PREVIEW — {previews.length > 0 ? `${previews.length} FORGED · ${VIBES[vibe].label}` : 'NOTHING FORGED YET'}
+          </p>
+          <button type="button" onClick={() => void downloadSet()} disabled={busy || previews.length === 0}
+            className="flex items-center gap-2 border-2 border-ultra bg-ultra px-3.5 py-1.5 font-mono text-[10px] font-bold tracking-widest text-[#f5f1e3] shadow-[2px_2px_0_var(--shadow-ink)] transition-all hover:-translate-y-0.5 hover:opacity-85 active:translate-y-0 disabled:translate-y-0 disabled:opacity-30">
+            <IcDown size={12} /> DOWNLOAD .BRUSHSET
+          </button>
+        </div>
+        {previews.length === 0 ? (
+          <div className="grid place-items-center border border-dashed border-[var(--line-soft)] py-10 text-center">
+            <p className="font-mono text-[10px] leading-relaxed tracking-widest text-[var(--mut)]">
+              {templates.length === 0
+                ? 'LOAD A TEMPLATE FIRST — THEN HIT ⚒ FORGE'
+                : 'HIT ⚒ FORGE TO PREVIEW — NOTHING DOWNLOADS UNTIL YOU SAY SO'}
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            {previews.map(b => (
+              <div key={b.id} className="group border border-[var(--line-soft)] bg-[#100d09] transition-all duration-150 hover:-translate-y-0.5 hover:border-verm">
+                {b.stroke
+                  ? <img src={b.stroke} alt="" aria-hidden="true" className="block aspect-[8/5] w-full object-cover" />
+                  : <div className="grid aspect-[8/5] place-items-center font-mono text-[9px] text-[var(--mut)]">NO PREVIEW</div>}
+                <p className="truncate border-t border-[var(--line-soft)] px-2 py-1 font-mono text-[8px] tracking-wider text-[var(--mut)]">
+                  {b.dir.replace(/_/g, ' ')}
+                </p>
+              </div>
+            ))}
+          </div>
         )}
       </div>
 
-      <div className="mt-4 grid items-end gap-3 border-2 border-[var(--line)] bg-[var(--panel)] p-4 shadow-[4px_4px_0_var(--shadow-ink)] sm:grid-cols-3">
-        <label className="block">
-          <span className="mb-1 flex justify-between font-mono text-[9px] font-semibold tracking-[0.2em] text-[var(--mut)]"><span>BRUSHES</span><span className="tabular-nums">{count}</span></span>
-          <input type="range" min={1} max={16} value={count} onChange={e => setCount(Number(e.target.value))} className="gate-range w-full" />
-        </label>
-        <label className="block">
-          <span className="mb-1 block font-mono text-[9px] font-semibold tracking-[0.2em] text-[var(--mut)]">SEED</span>
-          <input value={seed} onChange={e => setSeed(e.target.value)} className="w-full border border-[var(--line)] bg-[var(--panel2)] px-2 py-1 font-mono text-[11px]" />
-        </label>
-        <div className="flex gap-1.5">
-          <button type="button" onClick={() => setSeed(String(Math.floor(Math.random() * 99999)))}
-            className="flex-1 border-2 border-gold py-2 font-mono text-[10px] font-bold text-[#8a5f10] hover:bg-gold hover:text-black">⟳ REROLL</button>
-          <button type="button" onClick={() => void buildSet()} disabled={busy || templates.length === 0}
-            className="flex-1 border-2 border-moss bg-moss py-2 font-mono text-[10px] font-bold tracking-widest text-[#f5f1e3] hover:opacity-85 disabled:opacity-30">{busy ? 'FORGING…' : '⚒ FORGE'}</button>
-        </div>
-      </div>
-      <p className="mt-2 font-mono text-[9px] leading-relaxed text-[var(--mut)]">
-        Keeps each template's <code>Brush.archive</code> intact (so names/plist stay valid) and regenerates the shape/grain textures with a seeded glitch pass. Import the resulting <code>.brushset</code> into Procreate.
+      <p className="mt-3 font-mono text-[9px] leading-relaxed text-[var(--mut)]">
+        Keeps each template's <code className="text-[var(--fg2)]">Brush.archive</code> intact (names/plist stay valid) and regenerates shape/grain
+        textures with a seeded glitch pass. FORGE only previews — DOWNLOAD packs the <code className="text-[var(--fg2)]">.brushset</code> for Procreate.
+        Same seed + vibe = same set.
       </p>
     </main>
   );

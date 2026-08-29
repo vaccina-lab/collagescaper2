@@ -3,7 +3,7 @@ import type { Specimen } from './lib/types';
 import { useCrawler } from './lib/engine';
 import { ErrorBoundary } from './components/ui';
 import { Header, ControlRail, JumpRail, type View } from './components/chrome';
-import { Feed, TrayRail, Lightbox, exportTrayBatch, exportTraySheet, exportSingle, type BatchProgress } from './components/floor';
+import { Feed, TrayRail, Lightbox, exportTrayBatch, exportTraySheet, exportSingle, exportCutoutBatch, type BatchProgress } from './components/floor';
 import { GlitchLab, CollageDesk, BrushForge } from './components/studios';
 
 const viewFromHash = (): View => {
@@ -78,18 +78,26 @@ export default function App() {
     void exportSingle(sp).then(() => c.say('cut', `exported ${sp.code} @1400px jpg`)).catch(() => c.say('err', `export failed — ${sp.code} (CORS)`));
   }, [c]);
 
-  const handleBatch = useCallback(async (mode: 'full' | 'jpg1400') => {
-    if (batch || c.tray.length === 0) return;
+  const handleBatch = useCallback(async (mode: 'full' | 'jpg1400' | 'cutouts') => {
+    if (batch) return;
+    const items = mode === 'cutouts' ? c.tray.filter(t => !!t.cutoutSrc) : c.tray;
+    if (items.length === 0) {
+      c.say('warn', mode === 'cutouts' ? 'no isolated cutouts in the tray yet' : 'tray is empty');
+      return;
+    }
     if (archive) { URL.revokeObjectURL(archive.url); setArchive(null); }
-    setBatch({ done: 0, total: c.tray.length, failed: 0, mb: 0 });
-    c.say('sys', `batch ${mode === 'jpg1400' ? 'JPG-1400' : 'FULL'} dump — ${c.tray.length} plates`);
+    setBatch({ done: 0, total: items.length, failed: 0, mb: 0 });
+    const modeLabel = mode === 'cutouts' ? 'CUTOUTS' : mode === 'jpg1400' ? 'JPG-1400' : 'FULL';
+    c.say('sys', `batch ${modeLabel} dump — ${items.length} ${mode === 'cutouts' ? 'cutouts' : 'plates'}`);
     try {
-      const res = await exportTrayBatch(c.tray, (done, total, failed, mb) => setBatch({ done, total, failed, mb }),
-        mode === 'jpg1400' ? { jpg1400: true } : undefined);
+      const res = mode === 'cutouts'
+        ? await exportCutoutBatch(items, (done, total, failed, mb) => setBatch({ done, total, failed, mb }))
+        : await exportTrayBatch(items, (done, total, failed, mb) => setBatch({ done, total, failed, mb }),
+            mode === 'jpg1400' ? { jpg1400: true } : undefined);
       const url = URL.createObjectURL(res.blob);
       setArchive({ url, name: res.name });
       setBatch(null);
-      c.say('cut', `zip packed — ${res.count} plates (${res.mb} MB)${res.failed > 0 ? ` · ${res.failed} skipped` : ''}`);
+      c.say('cut', `zip packed — ${res.count} ${mode === 'cutouts' ? 'cutouts' : 'plates'} (${res.mb} MB)${res.failed > 0 ? ` · ${res.failed} skipped` : ''}`);
     } catch {
       setBatch(null);
       c.say('err', 'batch dump failed');
