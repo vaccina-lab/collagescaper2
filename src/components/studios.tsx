@@ -33,6 +33,57 @@ function loadImgEl(url: string): Promise<HTMLImageElement> {
   });
 }
 
+/* ---- Procreate .brushset identity helpers ----
+   Procreate discovers brushes via a root `brushset.plist` that lists each
+   brush by UUID; each brush lives in a folder named exactly that UUID, and
+   its Brush.archive's internal uuid field must match. So every forged brush
+   gets a fresh UUID, its archive's uuid bytes are rewritten in place (same
+   length, so the binary plist's offset table stays valid), and the folder is
+   named by that UUID. */
+function freshUuid(): string {
+  const h = () => Math.floor(Math.random() * 16).toString(16);
+  const seg = (n: number) => Array.from({ length: n }, h).join('');
+  return `${seg(8)}-${seg(4)}-4${seg(3)}-${'89ab'[Math.floor(Math.random() * 4)]}${seg(3)}-${seg(12)}`;
+}
+/* Rewrite every UUID-shaped string in the archive bytes to `nu`. Same-length
+   replacement (36 ASCII bytes, or 72 for UTF-16), so no plist offset shift. */
+function patchArchiveUuid(bytes: Uint8Array, nu: string): Uint8Array {
+  const out = new Uint8Array(bytes);
+  /* ASCII pass — the standard NSKeyedArchiver encoding for uuid strings */
+  const uuidRe = /[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/g;
+  let s = '';
+  for (let i = 0; i < out.length; i++) s += String.fromCharCode(out[i]);
+  s = s.replace(uuidRe, nu);
+  for (let i = 0; i < out.length; i++) out[i] = s.charCodeAt(i) & 0xff;
+  /* UTF-16 pass (LE then BE) — NSKeyedArchiver can store uuids as UTF-16 */
+  const matches16 = (be: boolean): number[] => {
+    const pos: number[] = [];
+    for (let i = 0; i + 72 <= out.length; i++) {
+      let ok = true;
+      for (let j = 0; j < 36 && ok; j++) {
+        const lo = be ? i + j * 2 + 1 : i + j * 2;      /* low byte = ascii char */
+        const hi = be ? i + j * 2 : i + j * 2 + 1;      /* high byte must be 0 */
+        ok = out[hi] === 0 && out[lo] === nu.charCodeAt(j);
+      }
+      if (ok) pos.push(i);
+    }
+    return pos;
+  };
+  const enc16 = (be: boolean): number[] => {
+    const b: number[] = [];
+    for (const ch of nu) {
+      const c = ch.charCodeAt(0);
+      if (be) b.push(0, c); else b.push(c, 0);
+    }
+    return b;
+  };
+  for (const be of [false, true]) {
+    const target = enc16(be);
+    for (const pos of matches16(be)) for (let j = 0; j < 72; j++) out[pos + j] = target[j];
+  }
+  return out;
+}
+
 /* ============================================================ */
 /*  GLITCH LAB                                                  */
 /* ============================================================ */
@@ -477,6 +528,7 @@ const vibeSeed = (v: VibeId): number => {
 
 interface ForgedBrush {
   id: string;
+  uuid: string; /* fresh UUID = folder name + brushset.plist entry + archive uuid */
   dir: string;
   files: Record<string, Uint8Array>;
   shape: Uint8Array | null;
@@ -612,10 +664,15 @@ export function BrushForge({ onLog }: { onLog: (level: LogLine['level'], msg: st
         const gShape = shapeSrc ? await glitchPng(shapeSrc, rnd, v) : null;
         const gGrain = grainSrc ? await glitchPng(grainSrc, rnd, v) : null;
         const stroke = gShape ? await renderStrokePreview(gShape, gGrain, rnd) : '';
+        const uuid = freshUuid();
+        const files: Record<string, Uint8Array> = { ...t.files };
+        /* patch the archive's internal uuid to the fresh folder uuid */
+        if (files['Brush.archive']) files['Brush.archive'] = patchArchiveUuid(files['Brush.archive'], uuid);
         made.push({
           id: `${t.name}-${i}-${seed}`,
-          dir: `${v.label.replace(/\s+/g, '_')}_${t.name}_${String(i + 1).padStart(2, '0')}`,
-          files: t.files,
+          uuid,
+          dir: uuid, /* Procreate requires folder name == brush uuid */
+          files,
           shape: gShape ?? null,
           grain: gGrain ?? null,
           stroke,
@@ -633,6 +690,7 @@ export function BrushForge({ onLog }: { onLog: (level: LogLine['level'], msg: st
     if (previews.length === 0) { onLog('warn', 'forge: forge some previews first'); return; }
     setBusy(true);
     try {
+      const setName = `SALVAGE9 ${VIBES[vibe].label}`;
       const out: Record<string, Uint8Array> = {};
       for (const b of previews) {
         for (const [p, d] of Object.entries(b.files)) out[`${b.dir}/${p}`] = d;
@@ -640,6 +698,22 @@ export function BrushForge({ onLog }: { onLog: (level: LogLine['level'], msg: st
         if (b.grain) out[`${b.dir}/Grain.png`] = b.grain;
         if (b.stroke) out[`${b.dir}/QuickLook/Thumbnail.png`] = await dataUrlToPng(b.stroke);
       }
+      /* container plist — this is what Procreate reads to find the brushes */
+      const brushEntries = previews.map(b => `\t\t<string>${b.uuid}</string>`).join('\n');
+      const plist = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+\t<key>name</key>
+\t<string>${setName}</string>
+\t<key>brushes</key>
+\t<array>
+${brushEntries}
+\t</array>
+</dict>
+</plist>
+`;
+      out['brushset.plist'] = new TextEncoder().encode(plist);
       const blob = new Blob([toBlobPart(zipSync(out))], { type: 'application/zip' });
       downloadBlob(blob, `salvage9-${VIBES[vibe].label.replace(/\s+/g, '').toLowerCase()}-s${seed}-${previews.length}.brushset`);
       onLog('cut', `forge: downloaded ${previews.length}-brush ${VIBES[vibe].label} set (seed ${seed})`);
