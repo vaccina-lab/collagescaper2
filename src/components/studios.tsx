@@ -448,11 +448,49 @@ export function CollageDesk({ feed, tray, onLog }: {
 /* ============================================================ */
 /*  BRUSH FORGE                                                 */
 /* ============================================================ */
+/* ---------------- Forge vibes (glitch personalities) ---------------- */
+interface VibeParams {
+  label: string;
+  rgb: number; slice: number; crush: number; scan: number;
+  mosaic: number; grain: number; hue: number; drain: number;
+  jitter: number;
+}
+const VIBES = {
+  glitch:   { label: 'GLITCH',   rgb: 55, slice: 45, crush: 30, scan: 35, mosaic: 18, grain: 20, hue: 0,   drain: 0,   jitter: 30 },
+  chaos:    { label: 'CHAOS',    rgb: 70, slice: 70, crush: 50, scan: 55, mosaic: 40, grain: 35, hue: 40,  drain: 0,   jitter: 50 },
+  zine:     { label: 'ZINE',     rgb: 12, slice: 20, crush: 65, scan: 60, mosaic: 10, grain: 55, hue: 0,   drain: 25,  jitter: 22 },
+  tattoo:   { label: 'TATTOO',   rgb: 6,  slice: 8,  crush: 72, scan: 8,  mosaic: 0,  grain: 18, hue: 0,   drain: 0,   jitter: 12 },
+  eldritch: { label: 'ELDRITCH', rgb: 28, slice: 30, crush: 24, scan: 30, mosaic: 12, grain: 40, hue: 90,  drain: 40,  jitter: 36 },
+  acid:     { label: 'ACID',     rgb: 60, slice: 24, crush: 34, scan: 26, mosaic: 22, grain: 24, hue: 150, drain: 10,  jitter: 42 },
+  signal:   { label: 'SIGNAL',   rgb: 34, slice: 52, crush: 40, scan: 68, mosaic: 8,  grain: 48, hue: 20,  drain: 15,  jitter: 34 },
+  decay:    { label: 'DECAY',    rgb: 16, slice: 34, crush: 52, scan: 40, mosaic: 14, grain: 60, hue: 30,  drain: 55,  jitter: 28 },
+  halftone: { label: 'HALFTONE', rgb: 10, slice: 12, crush: 58, scan: 14, mosaic: 55, grain: 30, hue: 0,   drain: 20,  jitter: 20 },
+  void:     { label: 'VOID',     rgb: 22, slice: 40, crush: 30, scan: 46, mosaic: 10, grain: 34, hue: 60,  drain: 70,  jitter: 32 },
+} as const;
+type VibeId = keyof typeof VIBES;
+const vibeSeed = (v: VibeId): number => {
+  const s = VIBES[v].label;
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return h;
+};
+
+interface ForgedBrush {
+  id: string;
+  dir: string;
+  files: Record<string, Uint8Array>;
+  shape: Uint8Array | null;
+  grain: Uint8Array | null;
+  stroke: string; /* dataUrl preview */
+}
+
 export function BrushForge({ onLog }: { onLog: (level: LogLine['level'], msg: string) => void }) {
   const [templates, setTemplates] = useState<Array<{ name: string; files: Record<string, Uint8Array> }>>([]);
+  const [vibe, setVibe] = useState<VibeId>('glitch');
   const [count, setCount] = useState(8);
   const [seed, setSeed] = useState(() => String(Math.floor(Math.random() * 99999)));
   const [busy, setBusy] = useState(false);
+  const [previews, setPreviews] = useState<ForgedBrush[]>([]);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
   const onFiles = async (list: FileList | null) => {
@@ -482,69 +520,147 @@ export function BrushForge({ onLog }: { onLog: (level: LogLine['level'], msg: st
     }
   };
 
-  /* Apply a deterministic glitch to a brush's texture PNGs. We reuse the
-     template's Brush.archive untouched (keeps name/plist valid) and only
-     regenerate Shape.png / Grain.png / QuickLook/Thumbnail.png. */
-  const buildSet = async () => {
-    if (templates.length === 0) { onLog('warn', 'forge: load a template first'); return; }
-    setBusy(true);
-    try {
-      let s = parseInt(seed, 10) || 0;
-      const rnd = () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; };
-      const out: Record<string, Uint8Array> = {};
-      const manifest: string[] = [];
-      for (let i = 0; i < Math.min(count, templates.length); i++) {
-        const t = templates[i % templates.length];
-        const dir = t.name;
-        for (const [p, d] of Object.entries(t.files)) out[`${dir}/${p}`] = d;
-        const shape = t.files['Shape.png'];
-        const grain = t.files['Grain.png'];
-        if (shape) out[`${dir}/Shape.png`] = await glitchPng(shape, rnd);
-        if (grain) out[`${dir}/Grain.png`] = await glitchPng(grain, rnd);
-        const thumbSrc = shape ?? grain;
-        if (thumbSrc) out[`${dir}/QuickLook/Thumbnail.png`] = await makeThumb(thumbSrc);
-        manifest.push(dir);
-      }
-      const blob = new Blob([toBlobPart(zipSync(out))], { type: 'application/zip' });
-      downloadBlob(blob, `salvage9-forge-s${seed}-${manifest.length}.brushset`);
-      onLog('cut', `forge: built ${manifest.length}-brush set (seed ${seed})`);
-    } catch (e) {
-      onLog('err', `forge: build failed — ${e instanceof Error ? e.message : 'unknown'}`);
-    } finally { setBusy(false); }
+  /* Deterministic PRNG so a given seed always reproduces the same set. */
+  const makeRnd = (s0: number) => {
+    let s = s0 >>> 0;
+    return () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; };
   };
 
-  const glitchPng = async (png: Uint8Array, rnd: () => number): Promise<Uint8Array> => {
+  /* Glitch a texture PNG with the active vibe's params + seed jitter. */
+  const glitchPng = async (png: Uint8Array, rnd: () => number, v: VibeParams): Promise<Uint8Array> => {
     const url = URL.createObjectURL(new Blob([toBlobPart(png)]));
     try {
       const img = await loadImgEl(url);
       const w = img.naturalWidth, h = img.naturalHeight;
+      const jit = () => Math.floor(rnd() * v.jitter);
       const { canvas } = renderGlitch({ el: img, w, h }, w, h, {
         ...DEFAULT_PARAMS,
         seed: Math.floor(rnd() * 99999),
-        rgb: Math.floor((rnd() - 0.5) * 80),
-        slice: Math.floor(rnd() * 55),
-        crush: Math.floor(rnd() * 40),
-        scan: Math.floor(rnd() * 50),
-        mosaic: Math.floor(rnd() * 30),
+        rgb: v.rgb + Math.floor((rnd() - 0.5) * v.jitter),
+        slice: v.slice + jit(),
+        crush: v.crush + jit(),
+        scan: v.scan + jit(),
+        mosaic: v.mosaic + jit(),
+        grain: v.grain + jit(),
+        hue: v.hue + Math.floor((rnd() - 0.5) * v.jitter),
+        drain: v.drain,
       });
       return new Uint8Array(await new Promise<ArrayBuffer>((res, rej) =>
         canvas.toBlob(b => (b ? b.arrayBuffer().then(res) : rej(new Error('encode failed'))), 'image/png')));
     } finally { URL.revokeObjectURL(url); }
   };
-  const makeThumb = async (png: Uint8Array): Promise<Uint8Array> => {
-    const url = URL.createObjectURL(new Blob([toBlobPart(png)]));
+
+  /* Render a stroke preview: stamp the (glitched) shape along a wavy path,
+     then multiply the grain over it so the stroke reads as a real brush mark. */
+  const renderStrokePreview = async (shapePng: Uint8Array, grainPng: Uint8Array | null, rnd: () => number): Promise<string> => {
+    const sUrl = URL.createObjectURL(new Blob([toBlobPart(shapePng)]));
+    const gUrl = grainPng ? URL.createObjectURL(new Blob([toBlobPart(grainPng)])) : null;
     try {
-      const img = await loadImgEl(url);
+      const shape = await loadImgEl(sUrl);
+      const grain = gUrl ? await loadImgEl(gUrl) : null;
+      const W = 240, H = 150;
       const c = document.createElement('canvas');
-      c.width = 256; c.height = 256;
+      c.width = W; c.height = H;
       const x = c.getContext('2d');
-      if (!x) throw new Error('no canvas');
-      x.fillStyle = '#1d1912'; x.fillRect(0, 0, 256, 256);
-      const sc = Math.min(232 / img.naturalWidth, 232 / img.naturalHeight);
-      x.drawImage(img, (256 - img.naturalWidth * sc) / 2, (256 - img.naturalHeight * sc) / 2, img.naturalWidth * sc, img.naturalHeight * sc);
-      return new Uint8Array(await new Promise<ArrayBuffer>((res, rej) =>
-        c.toBlob(b => (b ? b.arrayBuffer().then(res) : rej(new Error('encode failed'))), 'image/png')));
-    } finally { URL.revokeObjectURL(url); }
+      if (!x) return '';
+      x.fillStyle = '#100d09'; x.fillRect(0, 0, W, H);
+      /* wavy stroke path */
+      const n = 26;
+      const amp = 22 + rnd() * 18;
+      const phase = rnd() * Math.PI * 2;
+      x.globalCompositeOperation = 'lighter';
+      for (let i = 0; i <= n; i++) {
+        const t = i / n;
+        const px = 24 + t * (W - 48);
+        const py = H / 2 + Math.sin(t * Math.PI * 2 + phase) * amp;
+        const pressure = 0.5 + Math.sin(t * Math.PI) * 0.5; /* fat in the middle */
+        const size = (26 + rnd() * 16) * (0.35 + pressure * 0.75);
+        x.globalAlpha = 0.4 + pressure * 0.6;
+        x.save();
+        x.translate(px, py);
+        x.rotate(Math.sin(t * Math.PI * 3 + phase) * 0.35);
+        x.drawImage(shape, -size / 2, -size / 2, size, size);
+        x.restore();
+      }
+      if (grain) {
+        x.globalCompositeOperation = 'multiply';
+        x.globalAlpha = 1;
+        x.drawImage(grain, 0, 0, W, H);
+      }
+      x.globalCompositeOperation = 'source-over';
+      x.globalAlpha = 1;
+      return c.toDataURL('image/png');
+    } finally {
+      URL.revokeObjectURL(sUrl);
+      if (gUrl) URL.revokeObjectURL(gUrl);
+    }
+  };
+
+  /* FORGE = generate previews ONLY. No download. */
+  const forge = async () => {
+    if (templates.length === 0) { onLog('warn', 'forge: load a template first'); return; }
+    setBusy(true);
+    try {
+      const rnd = makeRnd((parseInt(seed, 10) || 0) ^ vibeSeed(vibe));
+      const v = VIBES[vibe];
+      const made: ForgedBrush[] = [];
+      const total = Math.min(count, Math.max(templates.length, count));
+      for (let i = 0; i < total; i++) {
+        const t = templates[i % templates.length];
+        const shapeSrc = t.files['Shape.png'];
+        const grainSrc = t.files['Grain.png'];
+        const gShape = shapeSrc ? await glitchPng(shapeSrc, rnd, v) : null;
+        const gGrain = grainSrc ? await glitchPng(grainSrc, rnd, v) : null;
+        const stroke = gShape ? await renderStrokePreview(gShape, gGrain, rnd) : '';
+        made.push({
+          id: `${t.name}-${i}-${seed}`,
+          dir: `${v.label.replace(/\s+/g, '_')}_${t.name}_${String(i + 1).padStart(2, '0')}`,
+          files: t.files,
+          shape: gShape ?? null,
+          grain: gGrain ?? null,
+          stroke,
+        });
+      }
+      setPreviews(made);
+      onLog('cut', `forge: previewed ${made.length} ${VIBES[vibe].label} brush(es) (seed ${seed}) — hit DOWNLOAD when ready`);
+    } catch (e) {
+      onLog('err', `forge: preview failed — ${e instanceof Error ? e.message : 'unknown'}`);
+    } finally { setBusy(false); }
+  };
+
+  /* DOWNLOAD = pack the previewed brushes into a .brushset. Separate from FORGE. */
+  const downloadSet = async () => {
+    if (previews.length === 0) { onLog('warn', 'forge: forge some previews first'); return; }
+    setBusy(true);
+    try {
+      const out: Record<string, Uint8Array> = {};
+      for (const b of previews) {
+        for (const [p, d] of Object.entries(b.files)) out[`${b.dir}/${p}`] = d;
+        if (b.shape) out[`${b.dir}/Shape.png`] = b.shape;
+        if (b.grain) out[`${b.dir}/Grain.png`] = b.grain;
+        if (b.stroke) out[`${b.dir}/QuickLook/Thumbnail.png`] = await dataUrlToPng(b.stroke);
+      }
+      const blob = new Blob([toBlobPart(zipSync(out))], { type: 'application/zip' });
+      downloadBlob(blob, `salvage9-${VIBES[vibe].label.replace(/\s+/g, '').toLowerCase()}-s${seed}-${previews.length}.brushset`);
+      onLog('cut', `forge: downloaded ${previews.length}-brush ${VIBES[vibe].label} set (seed ${seed})`);
+    } catch (e) {
+      onLog('err', `forge: download failed — ${e instanceof Error ? e.message : 'unknown'}`);
+    } finally { setBusy(false); }
+  };
+
+  /* REROLL = fresh seed, then regenerate previews. */
+  const reroll = async () => {
+    setSeed(String(Math.floor(Math.random() * 99999)));
+  };
+  const dataUrlToPng = async (dataUrl: string): Promise<Uint8Array> => {
+    const img = await loadImgEl(dataUrl);
+    const c = document.createElement('canvas');
+    c.width = img.naturalWidth; c.height = img.naturalHeight;
+    const x = c.getContext('2d');
+    if (!x) throw new Error('no canvas');
+    x.drawImage(img, 0, 0);
+    return new Uint8Array(await new Promise<ArrayBuffer>((res, rej) =>
+      c.toBlob(b => (b ? b.arrayBuffer().then(res) : rej(new Error('encode failed'))), 'image/png')));
   };
 
   return (
