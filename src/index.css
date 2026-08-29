@@ -39,6 +39,19 @@ html.night {
   --line-soft: rgba(233, 228, 212, 0.14);
   --shadow-ink: rgba(0, 0, 0, 0.65);
   --dot: rgba(233, 228, 212, 0.05);
+
+  /* flip the Tailwind theme tokens too — bg-paper / text-ink / text-ultra
+     etc. are var-based utilities, so overriding them here flips every
+     element styled with a theme utility (this is what leaked white before) */
+  --color-paper: #14110c;
+  --color-paper2: #1d1912;
+  --color-ink: #e9e4d4;
+  --color-ink2: #b8b09c;
+  --color-faint: #8a8270;
+  --color-ultra: #7d95ff;
+  --color-moss: #93b15c;
+  --color-gold: #e8b341;
+  --color-verm: #e0552f;
 }
 
 html, body {
