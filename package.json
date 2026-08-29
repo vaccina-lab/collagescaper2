@@ -1,6 +1,8 @@
 {
-  "name": "sandbox-workspace",
+  "name": "collagescraper",
+  "version": "0.1.0",
   "private": true,
+  "description": "Curated Image Scraping Automation",
   "type": "module",
   "scripts": {
     "dev": "vite",
